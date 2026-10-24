@@ -1,0 +1,36 @@
+{
+  "name": "wish2spec",
+  "version": "0.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "dev": "next dev -p 3003 -H 127.0.0.1",
+    "build": "next build",
+    "start": "next start -p 3003 -H 127.0.0.1",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "check:embeddings": "node scripts/check-embeddings.mjs"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.87",
+    "@huggingface/transformers": "^4.3.1",
+    "ai": "^6.0.314",
+    "next": "16.4.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.3",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
