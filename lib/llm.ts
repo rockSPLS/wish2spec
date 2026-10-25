@@ -15,19 +15,30 @@ function provider() {
     name: PROVIDER_NAME,
     baseURL: llm.baseUrl,
     apiKey: llm.apiKey,
+    // Ответ по JSON-схеме передаётся сервису как response_format: json_schema (strict).
+    // Без этого AI SDK отправил бы только json_object, и схему модель бы не увидела
+    supportsStructuredOutputs: true,
   });
 }
 
-export function chatModel() {
+// Уровень рассуждения: переданное значение, а если его нет — LLM_REASONING_EFFORT из настроек.
+// Значение передаёт только маршрут замера (scripts/measure-reasoning.mjs сравнивает уровни,
+// не трогая .env.local); продукт ничего не передаёт и работает по настройкам
+export function resolveReasoningEffort(override?: string): string | undefined {
+  return override ?? getConfig().llm.reasoningEffort;
+}
+
+export function chatModel(options: { reasoningEffort?: string } = {}) {
   const { llm } = getConfig();
   const model = provider().chatModel(llm.model);
-  if (!llm.reasoningEffort) return model;
+  const reasoningEffort = resolveReasoningEffort(options.reasoningEffort);
+  if (!reasoningEffort) return model;
   // reasoning_effort добавляется ко всем вызовам модели, чтобы не передавать его в каждом месте
   return wrapLanguageModel({
     model,
     middleware: defaultSettingsMiddleware({
       settings: {
-        providerOptions: { [PROVIDER_NAME]: { reasoningEffort: llm.reasoningEffort } },
+        providerOptions: { [PROVIDER_NAME]: { reasoningEffort } },
       },
     }),
   });

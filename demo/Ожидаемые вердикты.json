@@ -1,0 +1,17 @@
+{
+  "_comment": "Ожидаемые вердикты для демо-заявок из «Входящие заявки.txt»: номер заявки по порядку → вердикт; для similar — номер задачи. Читает scripts/measure-reasoning.mjs.",
+  "expected": {
+    "1": { "verdict": "exists" },
+    "2": { "verdict": "similar", "taskNumber": 6 },
+    "3": { "verdict": "out_of_scope" },
+    "4": { "verdict": "new" },
+    "5": { "verdict": "exists" },
+    "6": { "verdict": "similar", "taskNumber": 12 },
+    "7": { "verdict": "clarify" },
+    "8": { "verdict": "new" },
+    "9": { "verdict": "similar", "taskNumber": 14 },
+    "10": { "verdict": "out_of_scope" },
+    "11": { "verdict": "exists" },
+    "12": { "verdict": "new" }
+  }
+}

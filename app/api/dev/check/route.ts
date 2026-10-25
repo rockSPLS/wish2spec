@@ -2,22 +2,13 @@ import { connection } from "next/server";
 import { cosineSimilarity, generateText } from "ai";
 import { ConfigError, getConfig } from "@/lib/config";
 import { embedTexts } from "@/lib/embeddings";
+import { errorText } from "@/lib/errors";
+import { rejectForeignRequest } from "@/lib/guard";
 import { chatModel } from "@/lib/llm";
 
 // Маршрут проверки подключений (только при `npm run dev`): http://localhost:3003/api/dev/check
 // Отправляет модели короткий русский запрос и считает эмбеддинги трёх фраз
 // в выбранном режиме (local или api). В production-сборке отвечает 404.
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function forbidden(text: string): Response {
-  return new Response(text, {
-    status: 403,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
-}
 
 export async function GET(request: Request) {
   // Без этого Next.js при сборке попробовал бы выполнить обработчик заранее
@@ -26,21 +17,12 @@ export async function GET(request: Request) {
     return new Response("Not found", { status: 404 });
   }
 
-  // Только по адресу этого компьютера: чужой домен, который подменой DNS указывает
-  // на 127.0.0.1 (DNS rebinding), браузер счёл бы «своим» сайтом. Порт любой.
-  const hostname = (request.headers.get("host") ?? "").replace(/:\d+$/, "");
-  if (hostname !== "localhost" && hostname !== "127.0.0.1") {
-    return forbidden("Проверка работает только по адресу localhost или 127.0.0.1.");
-  }
-
-  // Запросы с чужих сайтов (например, картинкой на посторонней странице) не выполняем:
-  // иначе любая открытая в браузере страница могла бы тратить ключ. Адрес, введённый
-  // вручную, браузер помечает Sec-Fetch-Site: none; программы вне браузера (curl, скрипты Node)
-  // этот заголовок не отправляют и проходят.
-  const site = request.headers.get("sec-fetch-site");
-  if (site && site !== "none" && site !== "same-origin") {
-    return forbidden("Запрос пришёл с другого сайта. Скопируйте адрес в адресную строку браузера.");
-  }
+  // Запросы с чужих сайтов и по чужому адресу не выполняем — см. lib/guard.ts
+  const rejected = rejectForeignRequest(request, {
+    host: "Проверка работает только по адресу localhost или 127.0.0.1.",
+    crossSite: "Запрос пришёл с другого сайта. Скопируйте адрес в адресную строку браузера.",
+  });
+  if (rejected) return rejected;
 
   let config;
   try {

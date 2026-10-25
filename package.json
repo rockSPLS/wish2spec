@@ -1,6 +1,6 @@
 {
   "name": "wish2spec",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "engines": {
     "node": ">=20.9"
@@ -11,7 +11,9 @@
     "start": "next start -p 3003 -H 127.0.0.1",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "check:embeddings": "node scripts/check-embeddings.mjs"
+    "check:embeddings": "node scripts/check-embeddings.mjs",
+    "measure:tokens": "node scripts/measure-tokens.mjs",
+    "measure:reasoning": "node scripts/measure-reasoning.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.87",
