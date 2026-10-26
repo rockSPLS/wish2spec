@@ -1,5 +1,6 @@
 import { PATH_SEPARATOR } from "./chunking";
-import type { RequestResult, Spec } from "./types";
+import type { IncomingRequest, RequestResult, Source, Spec } from "./types";
+import { mentionsTask } from "./verdicts";
 
 // Тексты для кнопок «Копировать» — в Markdown, чтобы вставлять в трекер или письмо.
 // Основа ТЗ показывается в карточке этим же текстом, так что скопировано ровно то, что видно.
@@ -53,5 +54,62 @@ export function questionsMarkdown(title: string, requestText: string, questions:
     `## ${title}`,
     `Заявка:\n\n${quote(requestText)}`,
     questions.map((q, i) => `${i + 1}. ${q}`).join("\n"),
+  ].join("\n\n");
+}
+
+// Основа ТЗ, которую видит аналитик: исправленная вручную, если есть, иначе — собранная из ответа модели
+export function currentSpec(request: IncomingRequest): { text: string; manual: boolean } | null {
+  const edited = request.edits?.spec;
+  if (edited) return { text: edited.text, manual: true };
+  const result = request.result;
+  return result?.spec ? { text: specMarkdown(request.text, result.spec, result), manual: false } : null;
+}
+
+// Пункты раздела «Открытые вопросы» из текста основы ТЗ — для «Копировать вопросы»: после правки
+// аналитиком вопросы берутся из исправленного текста. Раздела нет или он пуст — пустой список
+export function specQuestions(specText: string): string[] {
+  const lines = specText.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `## ${SPEC_QUESTIONS_TITLE}`);
+  if (start === -1) return [];
+  const questions: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{1,2}\s/.test(line)) break;
+    const item = /^\s*(?:[-*+]|\d+[.)])\s+(.*\S)/.exec(line);
+    if (item) questions.push(item[1]);
+  }
+  return questions;
+}
+
+// Шаблоны копирования для «похоже на задачу» и «уже есть» — без вызова модели, как строки «Что дальше»
+
+// Номер источника [N] вне карточки ничего не скажет — только путь
+const sourceLine = (s: Source) => `- ${s.path.join(PATH_SEPARATOR)}`;
+
+// «Копировать для трекера»: комментарий к похожей задаче — исходная заявка и задача с источником
+export function trackerMarkdown(requestText: string, taskNumber: number, sources: Source[]): string {
+  const taskSources = sources.filter((s) => mentionsTask(s, taskNumber));
+  return [
+    `Ещё одна заявка к задаче №${taskNumber}:`,
+    quote(requestText),
+    taskSources.length > 0
+      ? `Где о задаче написано:\n${taskSources.map(sourceLine).join("\n")}`
+      : `Похожая задача: №${taskNumber}.`,
+  ].join("\n\n");
+}
+
+// «Копировать ответ»: короткий ответ автору — где найти функцию: разделы документов, где она описана.
+// Источники, где упомянута задача («Задача №N»), сюда не попадают: список задач — внутренний
+// документ команды, а не место, где автор найдёт функцию
+export function replyMarkdown(requestText: string, sources: Source[]): string {
+  const forAuthor = sources.filter((s) => !mentionsTask(s));
+  const where =
+    forAuthor.length > 0
+      ? forAuthor.map(sourceLine).join("\n")
+      : "- [укажите, где найти эту функцию]";
+  return [
+    "Здравствуйте! Спасибо за заявку.",
+    `То, о чём вы пишете, в системе уже есть. Где это найти:\n${where}`,
+    "Если мы поняли вас неверно, напишите — разберёмся.",
+    `Ваша заявка:\n${quote(requestText)}`,
   ].join("\n\n");
 }

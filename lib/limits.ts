@@ -11,6 +11,8 @@ export const LIMITS = {
   requestChars: 5_000,
   requestsPerAdd: 300,
   requestsTotal: 5_000,
+  specChars: 20_000, // основа ТЗ, исправленная аналитиком; модель пишет в разы короче
+  taskNumber: 999_999, // наибольший номер задачи, который можно ввести при смене вердикта
 };
 
 // 5000 → «5000», 500000 → «500 000»: четырёхзначные числа без пробела, как принято в русском тексте
@@ -23,6 +25,9 @@ const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} МБ`;
 export const LIMIT_MESSAGES = {
   requestTooLong: (n: number) => `Заявка ${n} длиннее ${formatNumber(LIMITS.requestChars)} символов — сократите её.`,
   requestEmpty: (n: number) => `Заявка ${n} пустая.`,
+  // Одна заявка без номера — исправленный текст в карточке
+  requestTextTooLong: () => `Заявка длиннее ${formatNumber(LIMITS.requestChars)} символов — сократите её.`,
+  requestTextEmpty: () => "Заявка пустая.",
   tooManyRequests: (count: number) =>
     `За раз можно добавить не больше ${formatNumber(LIMITS.requestsPerAdd)} заявок, а найдено ${formatNumber(count)}. Добавьте их в несколько приёмов.`,
   requestsTotal: (after: number) =>
@@ -36,6 +41,9 @@ export const LIMIT_MESSAGES = {
     `Файлы PDF и DOCX за одну загрузку — не больше ${mb(LIMITS.uploadFileBytes)} вместе. Загрузите их в несколько приёмов.`,
   tooManyDocuments: (count: number) =>
     `За раз можно загрузить не больше ${LIMITS.documentsPerUpload} документов, а выбрано ${count}. Загрузите их в несколько приёмов.`,
+  specTooLong: () => `Основа ТЗ длиннее ${formatNumber(LIMITS.specChars)} символов — сократите её.`,
+  specEmpty: () => "Основа ТЗ пустая.",
+  taskNumber: () => `Укажите номер задачи — целое число от 1 до ${formatNumber(LIMITS.taskNumber)}.`,
   documentsTotal: (after: number) =>
     `Документов может быть не больше ${LIMITS.documentsTotal}, а с этой загрузкой их стало бы ${after}. Удалите ненужные в шаге 1.`,
 };

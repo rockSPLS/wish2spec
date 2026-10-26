@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Chunk, DocumentFormat } from "./chunking";
-import type { DocumentSummary, IncomingRequest } from "./types";
+import type { DocumentSummary, IncomingRequest, RequestVersion } from "./types";
 
 // Хранение в JSON-файлах в data/ (папка не попадает в репозиторий):
 // data/index.json — документы, их фрагменты и эмбеддинги; data/requests.json — заявки и результаты.
@@ -73,6 +73,10 @@ export function finishProcessing(id: string): void {
   state.processing.delete(id);
 }
 
+export function isProcessing(id: string): boolean {
+  return state.processing.has(id);
+}
+
 // Векторы округляются до 6 знаков: файл индекса в разы меньше, на порядок близости это не влияет
 function roundVector(vector: number[]): number[] {
   return vector.map((x) => Math.round(x * 1e6) / 1e6);
@@ -113,6 +117,15 @@ export function deleteDocument(name: string): Promise<{ documents: StoredDocumen
   });
 }
 
+// «Удалить все документы»: документы и индекс. Источники в готовых результатах заявок остаются —
+// это копии фрагментов (см. Source в lib/types.ts)
+export function deleteAllDocuments(): Promise<StoredDocument[]> {
+  return serialized(async () => {
+    await writeJson(INDEX_FILE, { documents: [] } satisfies IndexFile);
+    return [];
+  });
+}
+
 // --- Входящие заявки ---
 
 export async function readRequests(): Promise<IncomingRequest[]> {
@@ -134,16 +147,75 @@ export function appendRequests(texts: string[]): Promise<IncomingRequest[]> {
   });
 }
 
-export function updateRequest(
-  id: string,
-  change: Pick<IncomingRequest, "status" | "result" | "error">,
-): Promise<IncomingRequest | null> {
+// Изменение одной заявки: прочитать, изменить, записать — без чужих записей посередине.
+// null — заявки нет
+export function changeRequest(id: string, change: (request: IncomingRequest) => void): Promise<IncomingRequest | null> {
   return serialized(async () => {
     const requests = await readRequests();
     const request = requests.find((r) => r.id === id);
     if (!request) return null;
-    Object.assign(request, change);
+    change(request);
     await writeJson(REQUESTS_FILE, { requests } satisfies RequestsFile);
     return request;
+  });
+}
+
+export function updateRequest(
+  id: string,
+  change: Pick<IncomingRequest, "status" | "result" | "error">,
+): Promise<IncomingRequest | null> {
+  return changeRequest(id, (request) => Object.assign(request, change));
+}
+
+// Текущая версия заявки — чтобы сохранить её как прежнюю или поменять с прежней местами
+function currentVersion(request: IncomingRequest): RequestVersion {
+  return {
+    text: request.text,
+    status: request.status,
+    result: request.result,
+    error: request.error,
+    edits: request.edits,
+    savedAt: new Date().toISOString(),
+  };
+}
+
+function applyVersion(request: IncomingRequest, version: Omit<RequestVersion, "savedAt">): void {
+  request.text = version.text;
+  request.status = version.status;
+  request.result = version.result;
+  request.error = version.error;
+  request.edits = version.edits;
+}
+
+// Перед «Обработать заново»: текущий результат вместе с правками аналитика становится прежней версией,
+// текст заявки — новый (не передан — тот же). Если результата нет (ошибка или не обработана), прежняя версия
+// не трогается: иначе неудачная попытка вытеснила бы последний готовый результат
+export function startNewVersion(id: string, text?: string): Promise<IncomingRequest | null> {
+  return changeRequest(id, (request) => {
+    if (request.status === "done") request.previous = currentVersion(request);
+    applyVersion(request, { text: text ?? request.text, status: "pending", result: null, error: null });
+  });
+}
+
+// «Вернуть прежний вариант»: текущая и прежняя версии меняются местами — ничего не теряется
+export function swapWithPrevious(id: string): Promise<IncomingRequest | null> {
+  return changeRequest(id, (request) => {
+    const previous = request.previous;
+    if (!previous) return;
+    request.previous = currentVersion(request);
+    applyVersion(request, previous);
+  });
+}
+
+// Удаление заявок: одной (ids) или всех (null). Заявку, которая сейчас обрабатывается, не удаляем —
+// busy: true, и ничего не меняется. Номера оставшихся заявок не меняются
+export function deleteRequests(ids: string[] | null): Promise<{ requests: IncomingRequest[]; busy: boolean }> {
+  return serialized(async () => {
+    const all = await readRequests();
+    const remove = (r: IncomingRequest) => ids === null || ids.includes(r.id);
+    if (all.some((r) => remove(r) && state.processing.has(r.id))) return { requests: all, busy: true };
+    const requests = all.filter((r) => !remove(r));
+    if (requests.length !== all.length) await writeJson(REQUESTS_FILE, { requests } satisfies RequestsFile);
+    return { requests, busy: false };
   });
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { formatNumber, LIMIT_MESSAGES, LIMITS } from "./limits";
+import { LIMIT_MESSAGES, LIMITS } from "./limits";
+import { VERDICTS } from "./types";
 
 // Проверка всего, что приходит на сервер. Лимиты и тексты сообщений — в lib/limits.ts:
 // страница проверяет то же самое до отправки, здесь — вторая проверка на случай, если её обошли.
@@ -55,9 +56,11 @@ export const uploadDocumentsSchema = z.object({
 
 export type UploadedDocument = z.infer<typeof uploadDocumentsSchema>["documents"][number];
 
-export const deleteDocumentSchema = z.object({
-  name: z.string().trim().min(1).max(LIMITS.documentNameChars),
-});
+// Один документ по названию или все сразу («Удалить все документы»)
+export const deleteDocumentSchema = z.union([
+  z.object({ name: z.string().trim().min(1).max(LIMITS.documentNameChars) }),
+  z.object({ all: z.literal(true) }),
+]);
 
 export const addRequestsSchema = z.object({
   texts: z
@@ -66,9 +69,44 @@ export const addRequestsSchema = z.object({
     .max(LIMITS.requestsPerAdd, { error: "too-many-requests" }),
 });
 
+const requestId = z.string().min(1).max(100);
+
+// again — «Обработать заново»: текущий результат сохраняется как прежняя версия.
+// text — исправленный текст заявки (вместе с повторной обработкой)
 export const processRequestSchema = z.object({
-  id: z.string().min(1).max(100),
+  id: requestId,
+  again: z.boolean().optional(),
+  text: requestText.transform((s) => s.trim()).optional(),
 });
+
+export const specRequestSchema = z.object({ id: requestId });
+
+// Одна заявка или все («Очистить список»)
+export const deleteRequestsSchema = z.union([z.object({ id: requestId }), z.object({ all: z.literal(true) })]);
+
+// Правки аналитика: смена вердикта, исправленная основа ТЗ, «Вернуть прежний вариант»
+export const editRequestSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      action: z.literal("verdict"),
+      id: requestId,
+      verdict: z.enum(VERDICTS),
+      taskNumber: z
+        .number({ error: "task-number" })
+        .int({ error: "task-number" })
+        .min(1, { error: "task-number" })
+        .max(LIMITS.taskNumber, { error: "task-number" })
+        .nullable(),
+    })
+    // Номер задачи — только у «похоже на задачу», и там он обязателен
+    .refine((v) => (v.verdict === "similar") === (v.taskNumber !== null), { error: "task-number", path: ["taskNumber"] }),
+  z.object({
+    action: z.literal("spec"),
+    id: requestId,
+    text: z.string().max(LIMITS.specChars, { error: "spec-too-long" }).refine(nonEmpty, { error: "spec-empty" }),
+  }),
+  z.object({ action: z.literal("restore"), id: requestId }),
+]);
 
 // Только для маршрута замера (npm run dev)
 export const measureSchema = z.object({
@@ -116,11 +154,9 @@ function issueText(issue: z.core.$ZodIssue, body: unknown): string {
   };
   switch (issue.message) {
     case "request-too-long":
-      return n === null
-        ? `Заявка длиннее ${formatNumber(LIMITS.requestChars)} символов — сократите её.`
-        : LIMIT_MESSAGES.requestTooLong(n);
+      return n === null ? LIMIT_MESSAGES.requestTextTooLong() : LIMIT_MESSAGES.requestTooLong(n);
     case "request-empty":
-      return n === null ? "Заявка пустая." : LIMIT_MESSAGES.requestEmpty(n);
+      return n === null ? LIMIT_MESSAGES.requestTextEmpty() : LIMIT_MESSAGES.requestEmpty(n);
     case "too-many-requests":
       return LIMIT_MESSAGES.tooManyRequests(record.texts?.length ?? 0);
     case "document-name-too-long":
@@ -137,6 +173,12 @@ function issueText(issue: z.core.$ZodIssue, body: unknown): string {
       return LIMIT_MESSAGES.tooManyDocuments(record.documents?.length ?? 0);
     case "upload-too-big":
       return LIMIT_MESSAGES.uploadTooBig();
+    case "spec-too-long":
+      return LIMIT_MESSAGES.specTooLong();
+    case "spec-empty":
+      return LIMIT_MESSAGES.specEmpty();
+    case "task-number":
+      return LIMIT_MESSAGES.taskNumber();
     default:
       return issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message;
   }

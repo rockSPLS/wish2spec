@@ -1,4 +1,4 @@
-import { VERDICTS, type ReviewReason, type Verdict } from "./types";
+import { VERDICTS, type IncomingRequest, type ReviewReason, type Verdict } from "./types";
 
 // Тексты ярлыков и блока «Что дальше» — постоянные, без модели:
 // подсказка аналитику не должна зависеть от ответа модели
@@ -29,14 +29,42 @@ export function nextStep(verdict: Verdict, taskNumber: number | null): string {
     case "new":
       return "Проверьте основу ТЗ, решите открытые вопросы с автором или командой и заведите задачу в трекере.";
     case "clarify":
-      return "Отправьте автору вопросы. После ответа добавьте уточнённую заявку заново.";
+      return "Отправьте автору вопросы. После ответа допишите его в заявку и нажмите «Обработать заново».";
     case "out_of_scope":
       return "Передайте заявку тем, кто за это отвечает, или ответьте автору сами.";
   }
 }
 
+// «Задача №12» («задачи №12»…) в пути или тексте фрагмента; «№120» и «№1» друг друга не находят.
+// Без номера — любая задача
+export function mentionsTask(source: { path: string[]; text: string }, taskNumber?: number): boolean {
+  const pattern = new RegExp(`задач\\p{L}*\\s*№\\s*${taskNumber ?? "\\d+"}(?!\\d)`, "iu");
+  return pattern.test(source.path.join(" ")) || pattern.test(source.text);
+}
+
+// Вердикт, который видит аналитик: исправленный вручную, если он есть, иначе — вердикт AI
+export function currentVerdict(request: IncomingRequest): {
+  verdict: Verdict;
+  taskNumber: number | null;
+  manual: boolean;
+} | null {
+  if (!request.result) return null;
+  const edited = request.edits?.verdict;
+  if (edited) return { verdict: edited.verdict, taskNumber: edited.taskNumber, manual: true };
+  return { verdict: request.result.verdict, taskNumber: request.result.taskNumber, manual: false };
+}
+
 // Отметка «Проверьте» и строки с причинами. Отметку ставит код (lib/process.ts), не модель
 export const REVIEW_MARK = "Проверьте";
+
+export const MANUAL_MARK = "изменено вручную";
+
+// Причины отметки «Проверьте», которые видит аналитик. Они относятся к ответу модели: если аналитик
+// сменил вердикт вручную, он заявку уже проверил, и отметка снимается. У результатов v0.1 причин нет
+export function currentReview(request: IncomingRequest): ReviewReason[] {
+  if (!request.result || request.edits?.verdict) return [];
+  return request.result.review ?? [];
+}
 
 export function reviewReasonText(reason: ReviewReason): string {
   switch (reason.kind) {

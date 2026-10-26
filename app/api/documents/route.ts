@@ -1,6 +1,6 @@
 import { connection } from "next/server";
-import { embeddingsModeForNotice } from "@/lib/config";
-import { errorText } from "@/lib/errors";
+import { ConfigError, embeddingsModeForNotice } from "@/lib/config";
+import { documentServiceErrorText, logError } from "@/lib/errors";
 import { docxToMarkdown, ExtractError, pdfToText } from "@/lib/extract";
 import { rejectForeignRequest } from "@/lib/guard";
 import {
@@ -13,9 +13,16 @@ import {
 } from "@/lib/input";
 import { LIMIT_MESSAGES, LIMITS } from "@/lib/limits";
 import { indexDocument } from "@/lib/search";
-import { deleteDocument, readDocuments, saveDocuments, summarize, type StoredDocument } from "@/lib/store";
+import {
+  deleteAllDocuments,
+  deleteDocument,
+  readDocuments,
+  saveDocuments,
+  summarize,
+  type StoredDocument,
+} from "@/lib/store";
 
-// «Документация системы»: список документов, загрузка (с заменой по имени), удаление.
+// «Документация системы»: список документов, загрузка (с заменой по имени), удаление одного или всех.
 // PDF и DOCX приходят файлом и здесь превращаются в текст (lib/extract.ts)
 
 export async function GET(request: Request) {
@@ -64,7 +71,19 @@ export async function POST(request: Request) {
     return Response.json({ documents: summarize(documents) });
   } catch (e) {
     if (e instanceof ExtractError) return badRequest(e.message);
-    return Response.json({ error: `Не удалось проиндексировать документы: ${errorText(e)}` }, { status: 500 });
+    // Ошибка настроек в .env.local — как есть: в тексте только имена переменных, без значений
+    if (e instanceof ConfigError) {
+      return Response.json({ error: `Не удалось проиндексировать документы. ${e.message}` }, { status: 500 });
+    }
+    // В режиме EMBEDDINGS_MODE=api эмбеддинги считает сервис модели — его ошибки понятным текстом
+    const service = documentServiceErrorText(e);
+    if (service) return Response.json({ error: `Не удалось проиндексировать документы. ${service}` }, { status: 502 });
+    // Прочее (например, не скачалась модель эмбеддингов) — общим текстом, текст ошибки — в терминале запуска
+    logError(e);
+    return Response.json(
+      { error: "Не удалось проиндексировать документы. Загрузите их снова. Если ошибка повторится, текст ошибки — в терминале запуска." },
+      { status: 500 },
+    );
   }
 }
 
@@ -73,6 +92,8 @@ export async function DELETE(request: Request) {
   if (rejected) return rejected;
   const { data, error } = await parseBody(request, deleteDocumentSchema);
   if (error) return error;
+  // «Удалить все документы» — документы и индекс; готовые результаты заявок не меняются
+  if ("all" in data) return Response.json({ documents: summarize(await deleteAllDocuments()) });
   const { documents, found } = await deleteDocument(data.name);
   if (!found) return Response.json({ error: "Документ не найден." }, { status: 404 });
   return Response.json({ documents: summarize(documents) });

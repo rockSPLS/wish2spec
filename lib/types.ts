@@ -59,7 +59,7 @@ export type RequestResult = {
   searchParts?: number; // на сколько частей заявка делилась для поиска (длинная — больше одной)
   // Отметка «Проверьте»: причины, которые нашёл код; пусто — вердикт уверенный. У результатов v0.1 нет
   review?: ReviewReason[];
-  spec: Spec | null; // для «новое»
+  spec: Spec | null; // для «новое», для других вердиктов — по кнопке «Подготовить основу ТЗ»
   processedAt: string;
   model: string;
   reasoningEffort: string | null;
@@ -67,7 +67,26 @@ export type RequestResult = {
   usage: { analysis: CallUsage; spec: CallUsage | null };
 };
 
-// Входящая заявка в списке «Результат обработки»
+// Правки аналитика поверх результата AI. Результат модели не меняется — правки лежат рядом,
+// поэтому в карточке видно, где вывод AI, а где решение человека
+export type AnalystEdits = {
+  verdict?: { verdict: Verdict; taskNumber: number | null; editedAt: string };
+  spec?: { text: string; editedAt: string }; // основа ТЗ в Markdown — так, как её исправил аналитик
+};
+
+// Версия заявки: текст, результат и правки аналитика. Перед «Обработать заново» текущая
+// версия сохраняется как прежняя; хранится одна прежняя версия
+export type RequestVersion = {
+  text: string;
+  status: IncomingRequest["status"];
+  result: RequestResult | null;
+  error: string | null;
+  edits?: AnalystEdits;
+  savedAt: string;
+};
+
+// Входящая заявка в списке «Результат обработки».
+// edits и previous появились в версии 0.3; у заявок, сохранённых раньше, их нет
 export type IncomingRequest = {
   id: string;
   number: number;
@@ -75,5 +94,7 @@ export type IncomingRequest = {
   addedAt: string;
   status: "pending" | "done" | "error"; // pending — ещё не обрабатывалась
   result: RequestResult | null;
-  error: string | null;
+  error: string | null; // понятный аналитику текст ошибки (lib/errors.ts)
+  edits?: AnalystEdits;
+  previous?: RequestVersion;
 };

@@ -116,13 +116,18 @@ export function DocumentsStep({
     }
   }
 
-  async function onDelete(name: string) {
-    if (!window.confirm(`Удалить документ «${name}»?`)) return;
+  // Один документ по названию или все сразу («Удалить все документы» — документы и индекс)
+  async function onDelete(target: { name: string } | { all: true }) {
+    const question =
+      "name" in target
+        ? `Удалить документ «${target.name}»?`
+        : `Удалить все документы (${documents.length}) вместе с индексом? Готовые результаты заявок останутся — источники в них сохранены. Новые заявки не обработать, пока не загрузите документы снова.`;
+    if (!window.confirm(question)) return;
     setError(null);
     try {
       const data = await callApi<{ documents: DocumentSummary[] }>("/api/documents", {
         method: "DELETE",
-        body: { name },
+        body: target,
       });
       onChange(data.documents);
     } catch (e) {
@@ -207,7 +212,7 @@ export function DocumentsStep({
                   type="button"
                   className="text-red-700 hover:underline disabled:opacity-40 dark:text-red-400"
                   disabled={!!busy}
-                  onClick={() => void onDelete(d.name)}
+                  onClick={() => void onDelete({ name: d.name })}
                 >
                   Удалить
                 </button>
@@ -215,6 +220,16 @@ export function DocumentsStep({
             </li>
           ))}
         </ul>
+      )}
+      {documents.length > 0 && (
+        <button
+          type="button"
+          className="w-fit text-sm text-red-700 hover:underline disabled:opacity-40 dark:text-red-400"
+          disabled={!!busy}
+          onClick={() => void onDelete({ all: true })}
+        >
+          Удалить все документы
+        </button>
       )}
     </section>
   );

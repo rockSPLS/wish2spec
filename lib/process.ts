@@ -15,9 +15,10 @@ import {
   type PromptFragment,
 } from "./prompts";
 import { findClosest } from "./search";
+import { UserError } from "./errors";
 import { readDocuments } from "./store";
 import { VERDICTS, type CallUsage, type RequestResult, type ReviewReason, type Source, type Spec, type Verdict } from "./types";
-import { humanizeVerdictIds } from "./verdicts";
+import { humanizeVerdictIds, mentionsTask } from "./verdicts";
 
 // Обработка одной входящей заявки:
 // 1) эмбеддинг заявки (длинной — по частям); 2) до TOP_K ближайших фрагментов не ниже порога;
@@ -105,14 +106,34 @@ async function generateStructured<T>(
 }
 
 // Номера, которых не было среди переданных фрагментов, отбрасываются
-function validIds(ids: number[], count: number): number[] {
-  return [...new Set(ids)].filter((n) => Number.isInteger(n) && n >= 1 && n <= count).sort((a, b) => a - b);
+function validIds(ids: number[], known: number[]): number[] {
+  return [...new Set(ids)].filter((n) => known.includes(n)).sort((a, b) => a - b);
 }
 
-// «Задача №12» («задачи №12»…) в пути или тексте фрагмента; «№120» и «№1» друг друга не находят
-function mentionsTask(source: { path: string[]; text: string }, taskNumber: number): boolean {
-  const pattern = new RegExp(`задач\\p{L}*\\s*№\\s*${taskNumber}(?!\\d)`, "iu");
-  return pattern.test(source.path.join(" ")) || pattern.test(source.text);
+// Основа ТЗ — второй вызов модели. Затронутые модули — только с номерами переданных фрагментов;
+// модуль без них отбрасывается
+async function generateSpec(
+  text: string,
+  fragments: PromptFragment[],
+  analysis: { what: string; where: string; reasoning: string },
+  reasoningEffort: string | undefined,
+): Promise<{ spec: Spec; usage: CallUsage }> {
+  const generated = await generateStructured(specSchema, SPEC_SYSTEM, specPrompt(text, fragments, analysis), reasoningEffort);
+  const known = fragments.map((f) => f.n);
+  const g = generated.output;
+  return {
+    spec: {
+      title: humanizeVerdictIds(g.title),
+      problem: humanizeVerdictIds(g.problem),
+      scenario: g.scenario.map(humanizeVerdictIds),
+      acceptance: g.acceptance.map(humanizeVerdictIds),
+      modules: g.modules
+        .map((m) => ({ name: m.name.trim(), sourceIds: validIds(m.sourceIds, known) }))
+        .filter((m) => m.name && m.sourceIds.length > 0),
+      questions: g.questions.map(humanizeVerdictIds),
+    },
+    usage: generated.usage,
+  };
 }
 
 // Ссылки [N] в тексте обоснования — чтобы каждая из них была в списке источников
@@ -127,6 +148,8 @@ export type ProcessOptions = {
   reasoningEffort?: string;
 };
 
+export const NO_DOCUMENTS = "Документация системы не загружена — сначала добавьте документы в шаге 1.";
+
 export async function processRequestText(text: string, options: ProcessOptions = {}): Promise<RequestResult> {
   const start = performance.now();
   const config = getConfig();
@@ -135,7 +158,7 @@ export async function processRequestText(text: string, options: ProcessOptions =
 
   const documents = await readDocuments();
   if (documents.length === 0) {
-    throw new Error("Документация системы не загружена — сначала добавьте документы в шаге 1.");
+    throw new UserError(NO_DOCUMENTS);
   }
 
   const search = await findClosest(text, documents);
@@ -159,30 +182,14 @@ export async function processRequestText(text: string, options: ProcessOptions =
   let spec: Spec | null = null;
   let specUsage: CallUsage | null = null;
   if (verdict === "new") {
-    const generated = await generateStructured(
-      specSchema,
-      SPEC_SYSTEM,
-      specPrompt(text, fragments, {
-        what: answer.analysis.what,
-        where: answer.analysis.where,
-        reasoning: answer.reasoning,
-      }),
+    const generated = await generateSpec(
+      text,
+      fragments,
+      { what: answer.analysis.what, where: answer.analysis.where, reasoning: answer.reasoning },
       reasoningEffort,
     );
+    spec = generated.spec;
     specUsage = generated.usage;
-    // Затронутые модули — только с номерами переданных фрагментов; модуль без них отбрасывается
-    const modules = generated.output.modules
-      .map((m) => ({ name: m.name.trim(), sourceIds: validIds(m.sourceIds, fragments.length) }))
-      .filter((m) => m.name && m.sourceIds.length > 0);
-    const g = generated.output;
-    spec = {
-      title: humanizeVerdictIds(g.title),
-      problem: humanizeVerdictIds(g.problem),
-      scenario: g.scenario.map(humanizeVerdictIds),
-      acceptance: g.acceptance.map(humanizeVerdictIds),
-      modules,
-      questions: g.questions.map(humanizeVerdictIds),
-    };
   }
 
   const cited = validIds(
@@ -191,7 +198,7 @@ export async function processRequestText(text: string, options: ProcessOptions =
       ...referencedIds(answer.reasoning),
       ...(spec?.modules.flatMap((m) => m.sourceIds) ?? []),
     ],
-    fragments.length,
+    fragments.map((f) => f.n),
   );
   const sources: Source[] = cited.map((n) => ({
     n,
@@ -234,4 +241,21 @@ export async function processRequestText(text: string, options: ProcessOptions =
     ms: Math.round(performance.now() - start),
     usage: { analysis: analysis.usage, spec: specUsage },
   };
+}
+
+// «Подготовить основу ТЗ» для заявки с любым вердиктом — тот же вызов модели, что для «новое».
+// Фрагменты — источники из сохранённого результата, с теми же номерами: так ссылки основы ТЗ
+// совпадают с источниками карточки, и основа готовится, даже если документы уже удалены или заменены
+export async function prepareSpec(text: string, result: RequestResult): Promise<{ spec: Spec; usage: CallUsage }> {
+  const fragments: PromptFragment[] = result.sources.map((s) => ({
+    n: s.n,
+    path: s.path.join(PATH_SEPARATOR),
+    text: s.text,
+  }));
+  return generateSpec(
+    text,
+    fragments,
+    { what: result.analysis.what, where: result.analysis.where, reasoning: result.reasoning },
+    resolveReasoningEffort(),
+  );
 }
