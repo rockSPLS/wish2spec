@@ -13,6 +13,7 @@ import { ERROR, HINT } from "./ui";
 
 export function Workspace() {
   const [documents, setDocuments] = useState<DocumentSummary[] | null>(null);
+  const [embeddingsMode, setEmbeddingsMode] = useState<"local" | "api">("local");
   const [requests, setRequests] = useState<IncomingRequest[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runStates, setRunStates] = useState<Record<string, RunState>>({});
@@ -21,11 +22,12 @@ export function Workspace() {
 
   useEffect(() => {
     Promise.all([
-      callApi<{ documents: DocumentSummary[] }>("/api/documents"),
+      callApi<{ documents: DocumentSummary[]; embeddingsMode: "local" | "api" }>("/api/documents"),
       callApi<{ requests: IncomingRequest[] }>("/api/requests"),
     ])
       .then(([d, r]) => {
         setDocuments(d.documents);
+        setEmbeddingsMode(d.embeddingsMode);
         setRequests(r.requests);
       })
       .catch((e: Error) => setLoadError(e.message));
@@ -86,7 +88,7 @@ export function Workspace() {
     <div className="flex flex-col gap-6">
       <div className="grid gap-6 md:grid-cols-2">
         <DocumentsStep documents={documents} onChange={setDocuments} />
-        <RequestsStep onAdded={setRequests} />
+        <RequestsStep onAdded={setRequests} embeddingsMode={embeddingsMode} />
       </div>
       <ResultsStep
         requests={requests}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { LIMIT_MESSAGES, LIMITS } from "@/lib/limits";
 import { splitRequests } from "@/lib/split-requests";
 import type { IncomingRequest } from "@/lib/types";
 import { callApi, plural } from "./api";
@@ -8,11 +9,32 @@ import { BUTTON, ERROR, FILE_BUTTON, HINT, INPUT, SECTION, STEP_TITLE } from "./
 
 // Шаг 2. Входящие заявки: загрузка .txt или вставка, «Найдено N» и список до добавления
 
-export function RequestsStep({ onAdded }: { onAdded: (requests: IncomingRequest[]) => void }) {
+// Что уходит в сервис языковой модели (текст выбран владельцем, см. журнал решений, «Приватность»).
+// В режиме api в сервис уходят ещё и все фрагменты документов — для эмбеддингов
+const SERVICE_NOTICE = {
+  local:
+    "В сервис языковой модели уходят текст заявки (полностью) и найденные к ней фрагменты загруженных документов. Уберите из них личные данные и секреты, если их нельзя передавать этому сервису.",
+  api: "В сервис языковой модели уходят текст заявки (полностью), найденные к ней фрагменты загруженных документов, а при загрузке — все фрагменты, чтобы рассчитать эмбеддинги. Уберите из них личные данные и секреты, если их нельзя передавать этому сервису.",
+};
+
+// Лимиты — те же, что проверяет сервер (lib/limits.ts); здесь — до отправки, чтобы сразу назвать заявку
+function limitProblems(found: string[]): string[] {
+  if (found.length > LIMITS.requestsPerAdd) return [LIMIT_MESSAGES.tooManyRequests(found.length)];
+  return found.flatMap((item, i) => (item.length > LIMITS.requestChars ? [LIMIT_MESSAGES.requestTooLong(i + 1)] : []));
+}
+
+export function RequestsStep({
+  onAdded,
+  embeddingsMode,
+}: {
+  onAdded: (requests: IncomingRequest[]) => void;
+  embeddingsMode: "local" | "api";
+}) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const found = useMemo(() => splitRequests(text), [text]);
+  const problems = useMemo(() => limitProblems(found), [found]);
 
   async function onFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -83,7 +105,18 @@ export function RequestsStep({ onAdded }: { onAdded: (requests: IncomingRequest[
         </div>
       )}
 
-      <button type="button" className={`${BUTTON} w-fit`} disabled={busy || found.length === 0} onClick={() => void onAdd()}>
+      {problems.length > 0 && (
+        <p className={ERROR} role="alert">
+          {problems.join("\n")}
+        </p>
+      )}
+
+      <button
+        type="button"
+        className={`${BUTTON} w-fit`}
+        disabled={busy || found.length === 0 || problems.length > 0}
+        onClick={() => void onAdd()}
+      >
         {found.length > 0
           ? `Добавить ${found.length} ${plural(found.length, ["заявку", "заявки", "заявок"])} в список`
           : "Добавить в список"}
@@ -94,6 +127,10 @@ export function RequestsStep({ onAdded }: { onAdded: (requests: IncomingRequest[
           {error}
         </p>
       )}
+
+      <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+        {SERVICE_NOTICE[embeddingsMode]}
+      </p>
     </section>
   );
 }

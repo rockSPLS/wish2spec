@@ -38,6 +38,21 @@ export function chunkDocument(name: string, text: string, format: DocumentFormat
   );
 }
 
+// Длинная входящая заявка для поиска делится на части так же, как длинный раздел документа:
+// модель эмбеддингов читает только первые 512 токенов, и без частей конец письма в поиске
+// не участвовал бы. Абзацы письма — строки (пустая строка разделяет заявки), длинная строка
+// режется по предложениям. Заявка не длиннее CHUNK_MAX_CHARS — одна часть
+export function splitRequestForSearch(text: string): string[] {
+  const normalized = text.replace(/\r\n?/g, "\n").trim();
+  if (normalized.length <= CHUNK_MAX_CHARS) return [normalized];
+  return packParagraphs(
+    normalized
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0),
+  );
+}
+
 type Section = { headings: string[]; body: string };
 
 const sameParent = (a: Section, b: Section) =>

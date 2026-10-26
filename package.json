@@ -1,6 +1,6 @@
 {
   "name": "wish2spec",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "engines": {
     "node": ">=20.9"
@@ -13,16 +13,19 @@
     "typecheck": "next typegen && tsc --noEmit",
     "check:embeddings": "node scripts/check-embeddings.mjs",
     "measure:tokens": "node scripts/measure-tokens.mjs",
-    "measure:reasoning": "node scripts/measure-reasoning.mjs"
+    "measure:reasoning": "node scripts/measure-reasoning.mjs",
+    "measure:quality": "node scripts/measure-quality.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.87",
     "@huggingface/transformers": "^4.3.1",
     "ai": "^6.0.314",
+    "mammoth": "^1.13.0",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "^0.0.1",
+    "unpdf": "1.7.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

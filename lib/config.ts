@@ -49,6 +49,12 @@ function describe(error: z.ZodError): string[] {
   return error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`);
 }
 
+// Режим эмбеддингов для текста предупреждения на странице. Без проверки остальных настроек:
+// страница открывается и тогда, когда .env.local заполнен не до конца
+export function embeddingsModeForNotice(): "local" | "api" {
+  return process.env.EMBEDDINGS_MODE?.trim() === "api" ? "api" : "local";
+}
+
 export function getConfig(): AppConfig {
   // Две части проверяются отдельно, чтобы сразу показать все проблемы, а не первую
   const llm = llmSchema.safeParse(process.env);

@@ -1,4 +1,4 @@
-import { VERDICTS, type Verdict } from "./types";
+import { VERDICTS, type ReviewReason, type Verdict } from "./types";
 
 // Тексты ярлыков и блока «Что дальше» — постоянные, без модели:
 // подсказка аналитику не должна зависеть от ответа модели
@@ -35,13 +35,27 @@ export function nextStep(verdict: Verdict, taskNumber: number | null): string {
   }
 }
 
+// Отметка «Проверьте» и строки с причинами. Отметку ставит код (lib/process.ts), не модель
+export const REVIEW_MARK = "Проверьте";
+
+export function reviewReasonText(reason: ReviewReason): string {
+  switch (reason.kind) {
+    case "task-not-found":
+      return `Задачи №${reason.taskNumber} нет в найденных фрагментах — номер мог быть указан ошибочно.`;
+    case "task-missing":
+      return "Номер задачи не указан — найдите её в источниках.";
+    case "no-links":
+      return "Связей в документах не найдено: вердикт — только по тексту заявки.";
+  }
+}
+
 // Служебные имена вердиктов (exists, new…) модель видит в схеме ответа и иногда пишет их
 // в текст обоснования. В тексте для аналитика они заменяются русскими ярлыками:
 // «Это не out_of_scope» → «Это не «Вне разработки»». Кавычки и обратные апострофы вокруг имени убираются.
 // Не заменяется внутри слов, ссылок и путей («new2», «/new/», «new.html») и рядом с латинским словом
 // («What's new»): там это обычный английский текст из заявки или документов, а не вердикт.
 // Соседнее служебное имя латинским словом не считается: «не new, similar или clarify»
-// и «exists/similar» заменяются целиком
+// и «exists/similar» заменяются целиком, в том числе в кавычках: «"new"/"similar"»
 const VERDICT_ID_IN_TEXT = /[«"'`]?(?<![\p{L}\p{N}_])(exists|similar|new|clarify|out_of_scope)(?![\p{L}\p{N}_])[»"'`]?/gu;
 const isVerdictId = (word: string | undefined) => !!word && (VERDICTS as readonly string[]).includes(word);
 
@@ -51,13 +65,17 @@ export function humanizeVerdictIds(text: string): string {
     const after = text.slice(offset + match.length);
     // Вплотную знак ссылки или пути (/ . : @ -) — это не вердикт; через «/» допускается только другое служебное имя
     const glueBefore = /[/.:@-]$/.exec(before)?.[0];
-    if (glueBefore && !(glueBefore === "/" && isVerdictId(/([A-Za-z_]+)\/$/.exec(before)?.[1]))) return match;
+    if (glueBefore && !(glueBefore === "/" && isVerdictId(/([A-Za-z_]+)[»"'`]?\/$/.exec(before)?.[1]))) return match;
     const glueAfter = /^(?:[/@-]|[.:][\p{L}\p{N}])/u.exec(after)?.[0];
-    if (glueAfter && !(glueAfter === "/" && isVerdictId(/^\/([A-Za-z_]+)/.exec(after)?.[1]))) return match;
-    // Рядом латинское слово, которое само не служебное имя, — это английский текст
+    if (glueAfter && !(glueAfter === "/" && isVerdictId(/^\/[«"'`]?([A-Za-z_]+)/.exec(after)?.[1]))) return match;
+    // Рядом латинское слово, которое само не служебное имя, — это английский текст.
+    // Кроме out_of_scope: с подчёркиванием в обычном английском такого слова нет, и «definitely out_of_scope» —
+    // служебное имя в английской вставке модели
     const prevWord = /([A-Za-z][A-Za-z_'’]*)[\s,]*$/.exec(before)?.[1];
     const nextWord = /^[\s,]*([A-Za-z][A-Za-z_'’]*)/.exec(after)?.[1];
-    if ((prevWord && !isVerdictId(prevWord)) || (nextWord && !isVerdictId(nextWord))) return match;
+    if (id !== "out_of_scope" && ((prevWord && !isVerdictId(prevWord)) || (nextWord && !isVerdictId(nextWord)))) {
+      return match;
+    }
     return `«${verdictLabel(id, null)}»`;
   });
 }
@@ -70,3 +88,6 @@ export const VERDICT_STYLE: Record<Verdict, string> = {
   clarify: "bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-100",
   out_of_scope: "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100",
 };
+
+export const REVIEW_STYLE =
+  "border border-orange-400 text-orange-800 dark:border-orange-500 dark:text-orange-200";

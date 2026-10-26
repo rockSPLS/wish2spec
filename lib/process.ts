@@ -6,6 +6,7 @@ import { getConfig } from "./config";
 import { chatModel, resolveReasoningEffort } from "./llm";
 import {
   ANALYSIS_FIELDS,
+  ANALYSIS_NO_FRAGMENTS,
   ANALYSIS_SYSTEM,
   analysisPrompt,
   SPEC_FIELDS,
@@ -15,25 +16,34 @@ import {
 } from "./prompts";
 import { findClosest } from "./search";
 import { readDocuments } from "./store";
-import { VERDICTS, type CallUsage, type RequestResult, type Source, type Spec } from "./types";
+import { VERDICTS, type CallUsage, type RequestResult, type ReviewReason, type Source, type Spec, type Verdict } from "./types";
 import { humanizeVerdictIds } from "./verdicts";
 
 // Обработка одной входящей заявки:
-// 1) эмбеддинг заявки; 2) TOP_K ближайших фрагментов; 3) модель по строгой схеме — разбор,
-// вердикт, обоснование, источники; 4) для «новое» — второй вызов: основа ТЗ.
+// 1) эмбеддинг заявки (длинной — по частям); 2) до TOP_K ближайших фрагментов не ниже порога;
+// 3) модель по строгой схеме — разбор, вердикт, обоснование, источники; 4) для «новое» — второй
+// вызов: основа ТЗ; 5) отметка «Проверьте», если вердикт стоит перепроверить.
 
-const analysisSchema = z.object({
-  analysis: z.object({
-    who: z.string().describe(ANALYSIS_FIELDS.who),
-    what: z.string().describe(ANALYSIS_FIELDS.what),
-    where: z.string().describe(ANALYSIS_FIELDS.where),
-  }),
-  verdict: z.enum(VERDICTS).describe(ANALYSIS_FIELDS.verdict),
-  taskNumber: z.number().int().nullable().describe(ANALYSIS_FIELDS.taskNumber),
-  reasoning: z.string().describe(ANALYSIS_FIELDS.reasoning),
-  sourceIds: z.array(z.number().int()).describe(ANALYSIS_FIELDS.sourceIds),
-  questions: z.array(z.string()).describe(ANALYSIS_FIELDS.questions),
-});
+// Если ни один фрагмент не прошёл порог, вердикты «уже есть» и «похоже на задачу» не на что опереть —
+// схема ответа сама не даёт их выбрать
+const NO_FRAGMENT_VERDICTS = ["new", "clarify", "out_of_scope"] as const;
+
+const analysisSchema = (noFragments: boolean) =>
+  z.object({
+    analysis: z.object({
+      who: z.string().describe(ANALYSIS_FIELDS.who),
+      what: z.string().describe(ANALYSIS_FIELDS.what),
+      where: z.string().describe(ANALYSIS_FIELDS.where),
+    }),
+    // Тип — общий для обоих случаев: дальше код работает с любым вердиктом
+    verdict: (noFragments
+      ? z.enum(NO_FRAGMENT_VERDICTS).describe(ANALYSIS_FIELDS.verdictNoFragments)
+      : z.enum(VERDICTS).describe(ANALYSIS_FIELDS.verdict)) as z.ZodType<Verdict>,
+    taskNumber: z.number().int().nullable().describe(ANALYSIS_FIELDS.taskNumber),
+    reasoning: z.string().describe(ANALYSIS_FIELDS.reasoning),
+    sourceIds: z.array(z.number().int()).describe(ANALYSIS_FIELDS.sourceIds),
+    questions: z.array(z.string()).describe(ANALYSIS_FIELDS.questions),
+  });
 
 const specSchema = z.object({
   title: z.string().describe(SPEC_FIELDS.title),
@@ -99,10 +109,18 @@ function validIds(ids: number[], count: number): number[] {
   return [...new Set(ids)].filter((n) => Number.isInteger(n) && n >= 1 && n <= count).sort((a, b) => a - b);
 }
 
+// «Задача №12» («задачи №12»…) в пути или тексте фрагмента; «№120» и «№1» друг друга не находят
+function mentionsTask(source: { path: string[]; text: string }, taskNumber: number): boolean {
+  const pattern = new RegExp(`задач\\p{L}*\\s*№\\s*${taskNumber}(?!\\d)`, "iu");
+  return pattern.test(source.path.join(" ")) || pattern.test(source.text);
+}
+
 // Ссылки [N] в тексте обоснования — чтобы каждая из них была в списке источников
 function referencedIds(text: string): number[] {
   return [...text.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]));
 }
+
+const round = (score: number) => Math.round(score * 1000) / 1000;
 
 export type ProcessOptions = {
   // Только для маршрута замера; без него — значение из настроек (см. resolveReasoningEffort)
@@ -120,7 +138,9 @@ export async function processRequestText(text: string, options: ProcessOptions =
     throw new Error("Документация системы не загружена — сначала добавьте документы в шаге 1.");
   }
 
-  const found = await findClosest(text, documents);
+  const search = await findClosest(text, documents);
+  const found = search.kept;
+  const noFragments = found.length === 0;
   const fragments: PromptFragment[] = found.map((f, i) => ({
     n: i + 1,
     path: f.chunk.path.join(PATH_SEPARATOR),
@@ -128,8 +148,8 @@ export async function processRequestText(text: string, options: ProcessOptions =
   }));
 
   const analysis = await generateStructured(
-    analysisSchema,
-    ANALYSIS_SYSTEM,
+    analysisSchema(noFragments),
+    noFragments ? ANALYSIS_SYSTEM + ANALYSIS_NO_FRAGMENTS : ANALYSIS_SYSTEM,
     analysisPrompt(text, fragments),
     reasoningEffort,
   );
@@ -180,9 +200,21 @@ export async function processRequestText(text: string, options: ProcessOptions =
     text: found[n - 1].chunk.text,
   }));
 
+  const taskNumber = verdict === "similar" ? answer.taskNumber : null;
+
+  // Отметка «Проверьте» — по фактам, которые проверяет код, а не по оценке модели
+  const review: ReviewReason[] = [];
+  // Номер ищется во всех найденных фрагментах, переданных модели, а не только в тех, на которые
+  // она сослалась: задача могла быть найдена, но не попасть в источники — тогда номер, скорее всего, верный
+  if (taskNumber !== null && !found.some((f) => mentionsTask(f.chunk, taskNumber))) {
+    review.push({ kind: "task-not-found", taskNumber });
+  }
+  if (verdict === "similar" && taskNumber === null) review.push({ kind: "task-missing" });
+  if (noFragments) review.push({ kind: "no-links" });
+
   return {
     verdict,
-    taskNumber: verdict === "similar" ? answer.taskNumber : null,
+    taskNumber,
     analysis: {
       who: humanizeVerdictIds(answer.analysis.who),
       what: humanizeVerdictIds(answer.analysis.what),
@@ -191,7 +223,10 @@ export async function processRequestText(text: string, options: ProcessOptions =
     reasoning: humanizeVerdictIds(answer.reasoning),
     questions: verdict === "clarify" ? answer.questions.map(humanizeVerdictIds) : [],
     sources,
-    retrieved: found.map((f, i) => ({ n: i + 1, path: f.chunk.path, score: Math.round(f.score * 1000) / 1000 })),
+    retrieved: found.map((f, i) => ({ n: i + 1, path: f.chunk.path, score: round(f.score) })),
+    discarded: search.discarded.map((f) => ({ path: f.chunk.path, score: round(f.score) })),
+    searchParts: search.parts,
+    review,
     spec,
     processedAt: new Date().toISOString(),
     model: config.llm.model,

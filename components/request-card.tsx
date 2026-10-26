@@ -4,7 +4,7 @@ import { Fragment } from "react";
 import { PATH_SEPARATOR } from "@/lib/chunking";
 import { CLARIFY_QUESTIONS_TITLE, questionsMarkdown, SPEC_QUESTIONS_TITLE, specMarkdown } from "@/lib/markdown";
 import type { IncomingRequest, RequestResult } from "@/lib/types";
-import { nextStep, verdictLabel, VERDICT_STYLE } from "@/lib/verdicts";
+import { nextStep, REVIEW_MARK, REVIEW_STYLE, reviewReasonText, verdictLabel, VERDICT_STYLE } from "@/lib/verdicts";
 import { CopyButton } from "./copy-button";
 import { ERROR, HINT } from "./ui";
 
@@ -32,6 +32,18 @@ export function VerdictLabel({ result }: { result: RequestResult }) {
     <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${VERDICT_STYLE[result.verdict]}`}>
       {verdictLabel(result.verdict, result.taskNumber)}
     </span>
+  );
+}
+
+// Отметка «Проверьте» рядом с ярлыком вердикта — её ставит код, когда вердикт стоит перепроверить.
+// У результатов v0.1 причин нет — отметки тоже
+export function needsReview(result: RequestResult): boolean {
+  return (result.review?.length ?? 0) > 0;
+}
+
+export function ReviewMark() {
+  return (
+    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${REVIEW_STYLE}`}>{REVIEW_MARK}</span>
   );
 }
 
@@ -95,9 +107,22 @@ export function RequestCard({ request, runState }: { request: IncomingRequest | 
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <VerdictLabel result={result} />
-        <span className="text-sm text-zinc-600 dark:text-zinc-400">Заявка №{request.number}</span>
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <VerdictLabel result={result} />
+          {needsReview(result) && <ReviewMark />}
+          <span className="ml-1 text-sm text-zinc-600 dark:text-zinc-400">Заявка №{request.number}</span>
+        </div>
+        {/* Каждая причина — отдельной строкой */}
+        {needsReview(result) && (
+          <ul className="flex flex-col gap-1 text-sm text-orange-800 dark:text-orange-200">
+            {result.review?.map((reason) => (
+              <li key={reason.kind} className="break-words">
+                {reviewReasonText(reason)}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {original}
@@ -119,7 +144,11 @@ export function RequestCard({ request, runState }: { request: IncomingRequest | 
 
       <Block title="Источники">
         {result.sources.length === 0 ? (
-          <p className={HINT}>Модель не сослалась ни на один фрагмент.</p>
+          <p className={HINT}>
+            {result.retrieved.length === 0
+              ? "В документах не нашлось фрагментов, связанных с заявкой."
+              : "Модель не сослалась ни на один фрагмент."}
+          </p>
         ) : (
           <ol className="flex flex-col gap-3">
             {result.sources.map((s) => (

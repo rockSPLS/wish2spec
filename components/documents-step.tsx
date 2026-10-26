@@ -1,13 +1,29 @@
 "use client";
 
 import { useState } from "react";
+import { LIMIT_MESSAGES, LIMITS } from "@/lib/limits";
 import type { DocumentSummary } from "@/lib/types";
 import { callApi, plural } from "./api";
 import { BUTTON_SECONDARY, ERROR, FILE_BUTTON, HINT, INPUT, SECTION, STEP_TITLE } from "./ui";
 
-type Upload = { name: string; format: "md" | "txt"; text: string };
+// .md и .txt уходят на сервер текстом, PDF и DOCX — файлом в base64: разбирает их сервер (lib/extract.ts)
+type Upload =
+  | { name: string; format: "md" | "txt"; text: string }
+  | { name: string; format: "pdf" | "docx"; data: string };
 
-// Шаг 1. Документация системы: загрузка .md и .txt, вставка текста, список и удаление
+// Шаг 1. Документация системы: загрузка .md, .txt, .pdf и .docx, вставка текста, список и удаление
+
+const FILE_PATTERN = /^(.*)\.(md|markdown|txt|pdf|docx)$/i;
+
+// Файл → base64 без префикса «data:…;base64,»
+function readBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""));
+    reader.onerror = () => reject(reader.error ?? new Error(`Не удалось прочитать файл «${file.name}».`));
+    reader.readAsDataURL(file);
+  });
+}
 
 export function DocumentsStep({
   documents,
@@ -45,25 +61,47 @@ export function DocumentsStep({
     if (!files || files.length === 0) return;
     const items: Upload[] = [];
     const skipped: string[] = [];
+    // Лимиты — те же, что проверяет сервер (lib/limits.ts); здесь — до отправки
+    const problems: string[] = [];
+    let fileBytes = 0;
     for (const file of Array.from(files)) {
-      const match = /^(.*)\.(md|markdown|txt)$/i.exec(file.name);
+      const match = FILE_PATTERN.exec(file.name);
       if (!match) {
         skipped.push(file.name);
         continue;
       }
-      items.push({
-        name: match[1],
-        format: match[2].toLowerCase() === "txt" ? "txt" : "md",
-        text: await file.text(),
-      });
+      const name = match[1];
+      const ext = match[2].toLowerCase();
+      if (ext === "pdf" || ext === "docx") {
+        if (file.size > LIMITS.fileBytes) {
+          problems.push(LIMIT_MESSAGES.fileTooBig(file.name));
+          continue;
+        }
+        fileBytes += file.size;
+        items.push({ name, format: ext, data: await readBase64(file) });
+      } else {
+        const text = await file.text();
+        if (text.length > LIMITS.documentChars) {
+          problems.push(LIMIT_MESSAGES.documentTooLong(file.name));
+          continue;
+        }
+        items.push({ name, format: ext === "txt" ? "txt" : "md", text });
+      }
     }
-    const problems: string[] = [];
+    // Слишком много за раз — не загружаем ничего, чтобы аналитик сам выбрал, что загрузить первым
+    if (items.length > LIMITS.documentsPerUpload) {
+      problems.push(LIMIT_MESSAGES.tooManyDocuments(items.length));
+      items.length = 0;
+    } else if (fileBytes > LIMITS.uploadFileBytes) {
+      problems.push(LIMIT_MESSAGES.uploadTooBig());
+      items.length = 0;
+    }
     if (items.length > 0) {
       const uploadError = await upload(items);
       if (uploadError) problems.push(uploadError);
     }
     if (skipped.length > 0) {
-      problems.push(`Пропущены файлы не в формате .md или .txt: ${skipped.join(", ")}.`);
+      problems.push(`Пропущены файлы не в формате .md, .txt, .pdf или .docx: ${skipped.join(", ")}.`);
     }
     setError(problems.length > 0 ? problems.join("\n") : null);
   }
@@ -98,8 +136,8 @@ export function DocumentsStep({
         1. Документация системы
       </h2>
       <p className={HINT}>
-        Справка, прежние ТЗ, список задач, глоссарий — файлы .md и .txt. Документ с тем же названием
-        заменяется.
+        Справка, прежние ТЗ, список задач, глоссарий — файлы .md, .txt, .pdf и .docx. PDF нужен
+        с текстом: скан без текстового слоя не прочитается. Документ с тем же названием заменяется.
       </p>
 
       <label className={`${FILE_BUTTON} ${busy ? "pointer-events-none opacity-40" : ""}`}>
@@ -107,7 +145,7 @@ export function DocumentsStep({
         <input
           type="file"
           multiple
-          accept=".md,.markdown,.txt,text/markdown,text/plain"
+          accept=".md,.markdown,.txt,.pdf,.docx"
           className="sr-only"
           disabled={!!busy}
           onChange={(e) => {

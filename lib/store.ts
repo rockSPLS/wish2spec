@@ -14,9 +14,12 @@ const REQUESTS_FILE = path.join(DATA_DIR, "requests.json");
 
 export type IndexedChunk = Chunk & { embedding: number[] };
 
+// Формат исходного файла. PDF и DOCX перед нарезкой превращаются в текст (lib/extract.ts)
+export type StoredFormat = DocumentFormat | "pdf" | "docx";
+
 export type StoredDocument = {
   name: string;
-  format: DocumentFormat;
+  format: StoredFormat;
   addedAt: string;
   chunks: IndexedChunk[];
 };

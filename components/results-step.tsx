@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { IncomingRequest } from "@/lib/types";
 import { plural } from "./api";
-import { RequestCard, VerdictLabel, type RunState } from "./request-card";
+import { needsReview, RequestCard, ReviewMark, VerdictLabel, type RunState } from "./request-card";
 import { BUTTON, HINT, SECTION, STEP_TITLE } from "./ui";
 
 // Шаг 3. Результат обработки: список заявок слева (около 40 %), карточка выбранной — справа.
@@ -13,7 +13,15 @@ function Status({ request, runState }: { request: IncomingRequest; runState?: Ru
   const base = "inline-block rounded px-2 py-0.5 text-xs font-medium";
   if (runState === "processing") return <span className={`${base} bg-sky-50 text-sky-800 dark:bg-sky-950 dark:text-sky-200`}>Обрабатывается…</span>;
   if (runState === "queued") return <span className={`${base} text-zinc-600 dark:text-zinc-400`}>В очереди</span>;
-  if (request.result) return <VerdictLabel result={request.result} />;
+  if (request.result) {
+    // Отметка «Проверьте» — под ярлыком, чтобы в списке было видно, какие заявки перепроверить
+    return (
+      <span className="flex flex-col items-end gap-1">
+        <VerdictLabel result={request.result} />
+        {needsReview(request.result) && <ReviewMark />}
+      </span>
+    );
+  }
   if (request.status === "error") return <span className={`${base} bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200`}>Ошибка</span>;
   return <span className={`${base} text-zinc-600 dark:text-zinc-400`}>Не обработана</span>;
 }

@@ -31,6 +31,12 @@ export type Spec = {
   questions: string[];
 };
 
+// Причина отметки «Проверьте». Тексты для аналитика — в lib/verdicts.ts
+export type ReviewReason =
+  | { kind: "task-not-found"; taskNumber: number } // номера задачи нет в найденных фрагментах
+  | { kind: "task-missing" } // «похоже на задачу», но номер не указан
+  | { kind: "no-links" }; // ни один фрагмент не прошёл порог «связей не найдено»
+
 export type CallUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -45,9 +51,14 @@ export type RequestResult = {
   reasoning: string;
   questions: string[]; // для «требуется уточнение»
   sources: Source[];
-  // Все фрагменты, переданные модели, с близостью к заявке — для разбора расхождений
-  // и подбора порога «связей не найдено» (версия 0.2). В карточке не показываются
+  // Все фрагменты, переданные модели, с близостью к заявке, и фрагменты из шестёрки ближайших,
+  // отброшенные порогом «связей не найдено», — для разбора расхождений и замеров.
+  // В карточке не показываются. У результатов v0.1 discarded нет
   retrieved: { n: number; path: string[]; score: number }[];
+  discarded?: { path: string[]; score: number }[];
+  searchParts?: number; // на сколько частей заявка делилась для поиска (длинная — больше одной)
+  // Отметка «Проверьте»: причины, которые нашёл код; пусто — вердикт уверенный. У результатов v0.1 нет
+  review?: ReviewReason[];
   spec: Spec | null; // для «новое»
   processedAt: string;
   model: string;
