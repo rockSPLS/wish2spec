@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DocumentSummary, IncomingRequest } from "@/lib/types";
 import { callApi } from "./api";
 import { DocumentsStep } from "./documents-step";
@@ -18,6 +18,9 @@ export function Workspace() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runStates, setRunStates] = useState<Record<string, RunState>>({});
   const [running, setRunning] = useState(false);
+  // «Остановить»: флаг читает цикл обработки списка, состояние — кнопка («Останавливаю…»)
+  const stopRef = useRef(false);
+  const [stopping, setStopping] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Пока идёт обработка (пачки, одной заявки или основы ТЗ), другие действия, которые меняют
@@ -88,14 +91,29 @@ export function Workspace() {
   }
 
   // Заявки отправляются на сервер по одной, по очереди; готовые сразу появляются в списке.
-  // Ошибка одной заявки не останавливает остальные
+  // Ошибка одной заявки не останавливает остальные. «Остановить» — следующая заявка не отправляется:
+  // та, что уже на сервере, доходит до конца
   async function processAll() {
     const ids = requests.filter((r) => r.status !== "done").map((r) => r.id);
     if (ids.length === 0) return;
+    stopRef.current = false;
     setRunning(true);
     setRunStates(Object.fromEntries(ids.map((id) => [id, "queued" as const])));
-    for (const id of ids) await processRequest(id);
+    for (const id of ids) {
+      if (stopRef.current) break;
+      await processRequest(id);
+    }
     setRunning(false);
+    setStopping(false);
+  }
+
+  // Заявки «В очереди» сразу возвращаются в прежнее состояние — «Не обработана» или «Ошибка»;
+  // кнопка неактивна, пока текущая не закончится
+  function stopAll() {
+    if (stopRef.current) return;
+    stopRef.current = true;
+    setStopping(true);
+    setRunStates((s) => Object.fromEntries(Object.entries(s).filter(([, state]) => state !== "queued")));
   }
 
   // Действия карточки. Ошибка возвращается текстом — карточка показывает её рядом с кнопкой
@@ -177,7 +195,6 @@ export function Workspace() {
           documents={documents}
           onChange={setDocuments}
           canLoadDemo={documents.length === 0 && requests.length === 0}
-          unprocessed={requests.filter((r) => r.status !== "done").length}
           onDemoLoaded={(data) => {
             setDocuments(data.documents);
             setRequests(data.requests);
@@ -191,8 +208,10 @@ export function Workspace() {
         selectedId={selectedId}
         onSelect={setSelectedId}
         onProcess={() => void processAll()}
+        onStop={stopAll}
         onClear={clearList}
         running={running}
+        stopping={stopping}
         busy={busy}
         hasDocuments={documents.length > 0}
         actions={actions}

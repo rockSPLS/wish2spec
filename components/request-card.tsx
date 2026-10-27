@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Pencil, RefreshCw, RotateCw, Tag, Trash2, Undo2 } from "lucide-react";
+import { FileText, Pencil, Play, RefreshCw, RotateCw, Tag, Trash2, Undo2 } from "lucide-react";
 import { Fragment, useState } from "react";
 import { PATH_SEPARATOR } from "@/lib/chunking";
 import {
@@ -28,7 +28,7 @@ import { RequestTextEditor, SpecEditor, VerdictEditor } from "./card-editors";
 import { CopyButton } from "./copy-button";
 import { Hint } from "./hint";
 import { Progress } from "./progress";
-import { BUSY_HINT, BUTTON, BUTTON_SECONDARY, DANGER_LINK, ERROR, HINT, ICON, LINK_BUTTON } from "./ui";
+import { BUSY_HINT, BUTTON, BUTTON_SECONDARY, DANGER_LINK, ERROR, HINT, ICON, LINK_BUTTON, NO_DOCUMENTS_HINT } from "./ui";
 
 // Карточка выбранной заявки. Весь текст из документов, заявок и ответов модели выводится
 // только как текст (React экранирует его), без вставки HTML.
@@ -55,16 +55,23 @@ export type CardActions = {
   remove: (request: IncomingRequest) => Promise<string | null>;
 };
 
-function Block({ title, mark, action, children }: {
+// main — заголовок главного результата карточки (основа ТЗ): цвет основного текста и крупнее,
+// остальные заголовки серые. Блоки разделены тонкой линией сверху: в длинной карточке иначе сливаются
+function Block({ title, main, mark, action, children }: {
   title: string;
+  main?: boolean;
   mark?: React.ReactNode;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex flex-col gap-2 border-t border-line pt-4">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted">
+        <h3
+          className={`flex flex-wrap items-center gap-2 font-semibold uppercase tracking-wide ${
+            main ? "text-[17px] text-foreground" : "text-sm text-muted"
+          }`}
+        >
           {title}
           {mark}
         </h3>
@@ -124,7 +131,7 @@ function SourceItem({ source, requestId }: { source: Source; requestId: string }
   const [full, setFull] = useState(false);
   const long = source.text.length > SOURCE_PREVIEW_CHARS;
   return (
-    <li id={`source-${requestId}-${source.n}`} className="scroll-mt-4 text-sm">
+    <li id={`source-${requestId}-${source.n}`} className="scroll-mt-4 py-3 text-sm first:pt-0 last:pb-0">
       <p className="break-words font-medium">
         [{source.n}] {source.path.join(PATH_SEPARATOR)}
       </p>
@@ -149,29 +156,42 @@ export function RequestCard({
   request,
   runState,
   busy,
+  hasDocuments,
   actions,
 }: {
   request: IncomingRequest | null;
   runState?: RunState;
   busy: boolean;
+  hasDocuments: boolean;
   actions: CardActions;
 }) {
   if (!request) {
     return <p className={HINT}>Выберите заявку в списке, чтобы увидеть разбор.</p>;
   }
   // key: при выборе другой заявки открытые формы и раскрытые источники сбрасываются
-  return <Card key={request.id} request={request} runState={runState} busy={busy} actions={actions} />;
+  return (
+    <Card
+      key={request.id}
+      request={request}
+      runState={runState}
+      busy={busy}
+      hasDocuments={hasDocuments}
+      actions={actions}
+    />
+  );
 }
 
 function Card({
   request,
   runState,
   busy,
+  hasDocuments,
   actions,
 }: {
   request: IncomingRequest;
   runState?: RunState;
   busy: boolean;
+  hasDocuments: boolean;
   actions: CardActions;
 }) {
   const [editing, setEditing] = useState<"verdict" | "spec" | "text" | null>(null);
@@ -338,7 +358,23 @@ function Card({
           </p>
         )}
         {original}
-        {status ?? <p className={HINT}>Заявка ещё не обработана. Нажмите «Обработать».</p>}
+        {status ?? (
+          // Одну заявку можно обработать раньше остальных — тем же путём, что и при обработке списка
+          <div className="flex flex-wrap items-center gap-3">
+            <p className={HINT}>Заявка ещё не обработана.</p>
+            <Hint hint={busy ? BUSY_HINT : !hasDocuments ? NO_DOCUMENTS_HINT : undefined}>
+              <button
+                type="button"
+                className={BUTTON}
+                disabled={busy || !hasDocuments}
+                onClick={() => void run(() => actions.process(request.id))}
+              >
+                <Play {...ICON} />
+                Обработать
+              </button>
+            </Hint>
+          </div>
+        )}
       </div>
     );
   }
@@ -422,7 +458,7 @@ function Card({
               : "Модель не сослалась ни на один фрагмент."}
           </p>
         ) : (
-          <ol className="flex flex-col gap-3">
+          <ol className="flex flex-col divide-y divide-line">
             {result.sources.map((s) => (
               <SourceItem key={s.n} source={s} requestId={request.id} />
             ))}
@@ -433,6 +469,7 @@ function Card({
       {spec ? (
         <Block
           title="Основа ТЗ"
+          main
           mark={spec.manual && <ManualMark />}
           action={
             editing !== "spec" && (
@@ -471,6 +508,7 @@ function Card({
       ) : (
         <Block
           title="Основа ТЗ"
+          main
           action={
             <Hint hint={busyHint}>
               <button

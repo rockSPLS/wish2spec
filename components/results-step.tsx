@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Play, Trash2 } from "lucide-react";
+import { ArrowRight, Play, Square, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { VERDICTS, type IncomingRequest, type Verdict } from "@/lib/types";
 import { currentReview, currentVerdict, REVIEW_MARK, REVIEW_STYLE, verdictLabel, VERDICT_STYLE } from "@/lib/verdicts";
@@ -8,7 +8,7 @@ import { plural } from "./api";
 import { Hint } from "./hint";
 import { Spinner } from "./progress";
 import { RequestCard, ReviewMark, VerdictLabel, type CardActions, type RunState } from "./request-card";
-import { BUSY_HINT, BUTTON, DANGER_LINK, ERROR, HINT, ICON, LINK_BUTTON, PANEL, SECTION, STEP_NUMBER, STEP_TITLE } from "./ui";
+import { BUSY_HINT, BUTTON, BUTTON_SECONDARY, DANGER_LINK, ERROR, HINT, ICON, LINK_BUTTON, NO_DOCUMENTS_HINT, PANEL, SECTION, STEP_NUMBER, STEP_TITLE } from "./ui";
 
 // Шаг 3. Результат обработки: счётчики, список заявок слева (около 40 %), карточка выбранной — справа.
 // На узком экране всё в один столбец, карточка под списком.
@@ -142,8 +142,10 @@ export function ResultsStep({
   selectedId,
   onSelect,
   onProcess,
+  onStop,
   onClear,
   running,
+  stopping,
   busy,
   hasDocuments,
   actions,
@@ -153,13 +155,28 @@ export function ResultsStep({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onProcess: () => void;
+  onStop: () => void;
   onClear: () => Promise<string | null>;
   running: boolean;
+  stopping: boolean;
   busy: boolean;
   hasDocuments: boolean;
   actions: CardActions;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
+  // «Остановить» исчезает, когда текущая заявка закончится, и фокус ушёл бы в начало страницы.
+  // Если кнопка была в фокусе (работа с клавиатуры), фокус переходит на «Обработать N заявок»,
+  // а если обрабатывать больше нечего и она неактивна — на заголовок шага
+  const processRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const refocusProcess = useRef(false);
+  useEffect(() => {
+    if (running || !refocusProcess.current) return;
+    refocusProcess.current = false;
+    const process = processRef.current;
+    if (process && !process.disabled) process.focus();
+    else titleRef.current?.focus();
+  }, [running]);
   const [clearError, setClearError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>(null);
   // Пока выбран фильтр, список не становится ниже, чем был без фильтра: иначе страница укорачивается
@@ -207,14 +224,16 @@ export function ResultsStep({
   }, [scrollRequest]);
 
   let hint: string | null = null;
-  if (!hasDocuments) hint = "Сначала загрузите документацию системы.";
+  if (!hasDocuments) hint = NO_DOCUMENTS_HINT;
   else if (requests.length === 0) hint = "Добавьте входящие заявки в шаге 2.";
   else if (unprocessed === 0 && !running) hint = "Все заявки обработаны.";
 
   return (
     <section className={SECTION} aria-labelledby="step-results">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="step-results" className={STEP_TITLE}>
+        {/* tabIndex -1 — только для фокуса из кода (после «Остановить»), в порядок Tab заголовок не входит.
+            Рамка фокуса остаётся: по ней видно, куда ушёл фокус */}
+        <h2 id="step-results" ref={titleRef} tabIndex={-1} className={STEP_TITLE}>
           <span className={STEP_NUMBER}>3</span>
           <span className="sr-only">. </span>
           Результат обработки
@@ -223,6 +242,7 @@ export function ResultsStep({
           {hint && <span className={HINT}>{hint}</span>}
           {/* Обрабатывает все необработанные заявки, а не только те, что видны при фильтре */}
           <button
+            ref={processRef}
             type="button"
             className={BUTTON}
             disabled={busy || unprocessed === 0 || !hasDocuments}
@@ -235,6 +255,21 @@ export function ResultsStep({
                 ? `Обработать ${unprocessed} ${plural(unprocessed, ["заявку", "заявки", "заявок"])}`
                 : "Обработать"}
           </button>
+          {/* Заявка, которая уже на сервере, доходит до конца; остальные остаются необработанными */}
+          {running && (
+            <button
+              type="button"
+              className={BUTTON_SECONDARY}
+              disabled={stopping}
+              onClick={(e) => {
+                refocusProcess.current = document.activeElement === e.currentTarget;
+                onStop();
+              }}
+            >
+              {stopping ? <Spinner /> : <Square {...ICON} />}
+              {stopping ? "Останавливаю…" : "Остановить"}
+            </button>
+          )}
           {requests.length > 0 && (
             <Hint hint={busy ? BUSY_HINT : undefined} align="end">
               <button
@@ -313,6 +348,7 @@ export function ResultsStep({
               request={selected}
               runState={selected ? runStates[selected.id] : undefined}
               busy={busy}
+              hasDocuments={hasDocuments}
               actions={actions}
             />
           </div>

@@ -17,6 +17,9 @@ export const HINT = "text-sm text-muted";
 // Всплывающая подсказка (components/hint.tsx) у кнопок, неактивных на время обработки
 export const BUSY_HINT = "Дождитесь конца обработки.";
 
+// Почему «Обработать» неактивна без документов — строкой у кнопки в шаге 3 и подсказкой в карточке
+export const NO_DOCUMENTS_HINT = "Сначала загрузите документацию системы.";
+
 export const ERROR = "text-sm text-danger whitespace-pre-wrap break-words";
 
 // Значок слева от текста кнопки
@@ -34,6 +37,9 @@ export const BUTTON_SECONDARY =
 // Кнопка-ссылка: «Править», «Изменить вердикт», «Показать все»
 export const LINK_BUTTON =
   "inline-flex items-center gap-1 text-sm text-link hover:underline disabled:opacity-40 disabled:no-underline";
+
+// Строка, которая раскрывает свёрнутое: «Вставить текст», сводка документов. Стрелка слева
+export const TOGGLE = "inline-flex w-fit cursor-pointer select-none items-center gap-1 text-sm text-link hover:underline";
 
 // «Удалить», «Очистить список», «Удалить все документы»
 export const DANGER_LINK =

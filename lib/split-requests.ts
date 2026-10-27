@@ -2,11 +2,18 @@
 // Заявки разделяются пустой строкой; внутри заявки переносы строк допустимы.
 // Если пустых строк нет (обычно это столбец из таблицы) — каждая строка отдельная заявка.
 
+const BLANK_LINE = /\n[ \t]*\n/;
+
+// Пустых строк нет, а строк несколько — каждая строка станет отдельной заявкой
+export function splitsByLines(input: string): boolean {
+  const text = input.replace(/\r\n?/g, "\n").trim();
+  return text.includes("\n") && !BLANK_LINE.test(text);
+}
+
 export function splitRequests(input: string): string[] {
   const text = input.replace(/\r\n?/g, "\n").trim();
   if (!text) return [];
-  const hasBlankLine = /\n[ \t]*\n/.test(text);
-  const parts = hasBlankLine ? text.split(/\n[ \t]*\n/) : text.split("\n");
+  const parts = BLANK_LINE.test(text) ? text.split(BLANK_LINE) : text.split("\n");
   return parts
     .map((part) =>
       part

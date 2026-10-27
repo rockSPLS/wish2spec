@@ -30,6 +30,14 @@ export const LIMIT_MESSAGES = {
   requestTextEmpty: () => "Заявка пустая.",
   tooManyRequests: (count: number) =>
     `За раз можно добавить не больше ${formatNumber(LIMITS.requestsPerAdd)} заявок, а найдено ${formatNumber(count)}. Добавьте их в несколько приёмов.`,
+  // Только на странице, до отправки: там известно, откуда заявка — из файла или из поля.
+  // Номер — свой у каждого файла и у поля, с единицы, как в списке заявок из файла
+  fileRequestTooLong: (n: number, file: string) =>
+    `Заявка ${n} в файле «${file}» длиннее ${formatNumber(LIMITS.requestChars)} символов — сократите её в файле и загрузите файл снова.`,
+  typedRequestTooLong: (n: number) =>
+    `Заявка ${n}, введённая вручную, длиннее ${formatNumber(LIMITS.requestChars)} символов — сократите её.`,
+  tooManyRequestsWithFiles: (count: number, files: number) =>
+    `За раз можно добавить не больше ${formatNumber(LIMITS.requestsPerAdd)} заявок, а найдено ${formatNumber(count)}. Разделите ${files > 1 ? "файлы" : "файл"} на части или добавьте заявки в несколько приёмов.`,
   requestsTotal: (after: number) =>
     `Заявок в списке может быть не больше ${formatNumber(LIMITS.requestsTotal)}, а с новыми их стало бы ${formatNumber(after)}.`,
   documentTooLong: (name: string) =>
