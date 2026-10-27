@@ -1,25 +1,101 @@
 @import "tailwindcss";
 
+/* Вариант dark: включается атрибутом data-theme="dark" на <html>, а не настройкой системы напрямую.
+   Атрибут до первой отрисовки ставит скрипт темы (lib/theme.ts): сохранённый выбор, а если его нет —
+   настройку системы. Дальше тему меняет кнопка в шапке */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Все цвета оформления — здесь: правка оттенка — одна строка. В разметке они доступны как классы
+   Tailwind: bg-page, bg-card, border-line, text-muted, bg-brand, text-link и т. д.
+   Ярлыки вердиктов и отметка «Проверьте» — своими цветами (lib/verdicts.ts) */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --page: #f4f4f5; /* фон страницы */
+  --card: #ffffff; /* карточки шагов */
+  --subtle: #f4f4f5; /* вложенные блоки: текст основы ТЗ, строка списка под курсором */
+  --selected: #e7f5ef; /* выбранная строка списка */
+  --line: #e4e4e7; /* тонкие рамки и разделители */
+  --line-strong: #d4d4d8; /* рамки полей ввода и второстепенных кнопок */
+  --foreground: #18181b; /* основной текст */
+  --muted: #52525b; /* подсказки и подписи */
+  --brand: #047d59; /* заливка главных кнопок и номеров шагов */
+  --brand-hover: #03694b;
+  --on-brand: #ffffff; /* текст на заливке brand */
+  --focus: #047d59; /* рамка фокуса и полоса выбранной строки: нужен контраст не ниже 3:1 с фоном */
+  --link: #047d59; /* ссылки и мелкий текст в фирменном цвете: #05ac7a на белом читается плохо */
+  --danger: #b91c1c; /* «Удалить» и тексты ошибок */
+  --warning: #d97706; /* значок у предупреждения под шагом 2 */
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --page: #1c1f24;
+  --card: #24282e;
+  --subtle: #2c3138;
+  --selected: #1f3a31;
+  --line: #353b43;
+  --line-strong: #464d57;
+  --foreground: #e6edf3;
+  --muted: #9ba5b0;
+  --brand: #047d59;
+  --brand-hover: #05916a;
+  --on-brand: #ffffff;
+  --focus: #0fb883;
+  --link: #3dbe93;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  /* Тёмные системные элементы: полосы прокрутки, переключатели */
+  color-scheme: dark;
 }
 
 @theme inline {
-  --color-background: var(--background);
+  --color-page: var(--page);
+  --color-card: var(--card);
+  --color-subtle: var(--subtle);
+  --color-selected: var(--selected);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-on-brand: var(--on-brand);
+  --color-focus: var(--focus);
+  --color-link: var(--link);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* Основной текст интерфейса (text-sm) — 15 px вместо 14: при 14 px Geist читался тонким и слипшимся */
+  --text-sm: 0.9375rem;
+  /* Появление карточки заявки — коротко и спокойно; при «уменьшить движение» не включается (motion-safe:) */
+  --animate-appear: appear 160ms ease-out;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 }
 
 body {
-  background: var(--background);
+  background: var(--page);
   color: var(--foreground);
+}
+
+/* Активные кнопки — курсор «рука» (в Tailwind 4 по умолчанию стрелка), неактивные — обычная стрелка */
+@layer base {
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+  /* Неактивная кнопка с подсказкой (components/hint.tsx) — курсор со знаком вопроса */
+  [data-hint] > button:disabled {
+    cursor: help;
+  }
+}
+
+/* Рамка фокуса для работы с клавиатуры — одна на всё */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }

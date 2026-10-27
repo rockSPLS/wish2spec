@@ -1,19 +1,38 @@
 "use client";
 
+import { FilePlus, FolderOpen, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
 import { LIMIT_MESSAGES, LIMITS } from "@/lib/limits";
-import type { DocumentSummary } from "@/lib/types";
+import type { DocumentSummary, IncomingRequest } from "@/lib/types";
 import { callApi, plural } from "./api";
-import { BUTTON_SECONDARY, ERROR, FILE_BUTTON, HINT, INPUT, SECTION, STEP_TITLE } from "./ui";
+import { Hint } from "./hint";
+import { Progress } from "./progress";
+import {
+  BUTTON_SECONDARY,
+  DANGER_LINK,
+  ERROR,
+  FILE_BUTTON,
+  FILE_BUTTON_BUSY,
+  HINT,
+  ICON,
+  INPUT,
+  SECTION,
+  STEP_NUMBER,
+  STEP_TITLE,
+} from "./ui";
 
 // .md и .txt уходят на сервер текстом, PDF и DOCX — файлом в base64: разбирает их сервер (lib/extract.ts)
 type Upload =
   | { name: string; format: "md" | "txt"; text: string }
   | { name: string; format: "pdf" | "docx"; data: string };
 
-// Шаг 1. Документация системы: загрузка .md, .txt, .pdf и .docx, вставка текста, список и удаление
+// Шаг 1. Документация системы: загрузка .md, .txt, .pdf и .docx, вставка текста, список и удаление.
+// Пока нет ни документов, ни заявок, — ещё и «Загрузить демо-данные»
 
 const FILE_PATTERN = /^(.*)\.(md|markdown|txt|pdf|docx)$/i;
+
+// Почему кнопки неактивны во время загрузки — при наведении; рядом и так видна строка о процессе
+const LOADING_HINT = "Дождитесь конца загрузки.";
 
 // Файл → base64 без префикса «data:…;base64,»
 function readBase64(file: File): Promise<string> {
@@ -28,18 +47,32 @@ function readBase64(file: File): Promise<string> {
 export function DocumentsStep({
   documents,
   onChange,
+  canLoadDemo,
+  unprocessed,
+  onDemoLoaded,
 }: {
   documents: DocumentSummary[];
   onChange: (documents: DocumentSummary[]) => void;
+  canLoadDemo: boolean;
+  // Сколько заявок без результата — строка «Загружено…» видна, пока демо-заявки не начали обрабатывать
+  unprocessed: number;
+  onDemoLoaded: (data: { documents: DocumentSummary[]; requests: IncomingRequest[] }) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // «Загружено: 5 документов и 12 заявок…» — до следующего действия в этом шаге и пока число
+  // необработанных заявок не изменилось: потом совет «Нажмите «Обработать 12 заявок»» устарел бы
+  const [notice, setNotice] = useState<{ text: string; requests: number } | null>(null);
+  // Число необработанных заявок изменилось — строка убирается совсем, а не прячется: иначе после
+  // «Обработать заново» (заявка на время снова без результата) она появилась бы опять
+  if (notice && notice.requests !== unprocessed) setNotice(null);
   const [pasteName, setPasteName] = useState("");
   const [pasteText, setPasteText] = useState("");
 
   // Возвращает текст ошибки или null; показывает его вызывающая функция — вместе с другими сообщениями
   async function upload(items: Upload[]): Promise<string | null> {
     setError(null);
+    setNotice(null);
     setBusy(
       "Индексирую документы… В первый раз скачивается модель эмбеддингов (около 135 МБ), это может занять пару минут.",
     );
@@ -116,6 +149,33 @@ export function DocumentsStep({
     }
   }
 
+  // Демо-данные: документы индексируются на сервере тем же кодом, что при обычной загрузке.
+  // Обработку кнопка не запускает — модель вызывается по «Обработать»
+  async function onDemo() {
+    setError(null);
+    setNotice(null);
+    setBusy(
+      "Загружаю демо-данные… В первый раз скачивается модель эмбеддингов (около 135 МБ), это может занять пару минут.",
+    );
+    try {
+      const data = await callApi<{ documents: DocumentSummary[]; requests: IncomingRequest[] }>("/api/demo", {
+        method: "POST",
+        body: {},
+      });
+      onDemoLoaded(data);
+      const d = data.documents.length;
+      const r = data.requests.length;
+      setNotice({
+        text: `Загружено: ${d} ${plural(d, ["документ", "документа", "документов"])} и ${r} ${plural(r, ["заявка", "заявки", "заявок"])}. Нажмите «Обработать ${r} ${plural(r, ["заявку", "заявки", "заявок"])}».`,
+        requests: r,
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   // Один документ по названию или все сразу («Удалить все документы» — документы и индекс)
   async function onDelete(target: { name: string } | { all: true }) {
     const question =
@@ -124,6 +184,7 @@ export function DocumentsStep({
         : `Удалить все документы (${documents.length}) вместе с индексом? Готовые результаты заявок останутся — источники в них сохранены. Новые заявки не обработать, пока не загрузите документы снова.`;
     if (!window.confirm(question)) return;
     setError(null);
+    setNotice(null);
     try {
       const data = await callApi<{ documents: DocumentSummary[] }>("/api/documents", {
         method: "DELETE",
@@ -135,33 +196,63 @@ export function DocumentsStep({
     }
   }
 
+  const empty = documents.length === 0;
+
   return (
     <section className={SECTION} aria-labelledby="step-documents">
       <h2 id="step-documents" className={STEP_TITLE}>
-        1. Документация системы
+        <span className={STEP_NUMBER}>1</span>
+        <span className="sr-only">. </span>
+        Документация системы
       </h2>
-      <p className={HINT}>
-        Справка, прежние ТЗ, список задач, глоссарий — файлы .md, .txt, .pdf и .docx. PDF нужен
-        с текстом: скан без текстового слоя не прочитается. Документ с тем же названием заменяется.
-      </p>
+      {empty ? (
+        // Пустой шаг подсказывает, что загрузить; пример — только пока нет и заявок (тогда видна кнопка)
+        <p className="text-sm">
+          Загрузите справку, прежние ТЗ, список задач и глоссарий своей системы.
+          {canLoadDemo && " Или посмотрите, как это работает, на примере студии йоги."}
+        </p>
+      ) : (
+        <p className={HINT}>
+          Справка, прежние ТЗ, список задач, глоссарий — файлы .md, .txt, .pdf и .docx. PDF нужен
+          с текстом: скан без текстового слоя не прочитается. Документ с тем же названием заменяется.
+        </p>
+      )}
 
-      <label className={`${FILE_BUTTON} ${busy ? "pointer-events-none opacity-40" : ""}`}>
-        Загрузить файлы
-        <input
-          type="file"
-          multiple
-          accept=".md,.markdown,.txt,.pdf,.docx"
-          className="sr-only"
-          disabled={!!busy}
-          onChange={(e) => {
-            void onFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Во время загрузки подпись выглядит как неактивная кнопка и не ловит мышь — наведение
+            достаётся обёртке с подсказкой, курсор со знаком вопроса — у неё же */}
+        <Hint hint={busy ? LOADING_HINT : undefined} className={busy ? "cursor-help" : ""}>
+          <label className={busy ? FILE_BUTTON_BUSY : FILE_BUTTON}>
+            <Upload {...ICON} />
+            Загрузить файлы
+            <input
+              type="file"
+              multiple
+              accept=".md,.markdown,.txt,.pdf,.docx"
+              className="sr-only"
+              disabled={!!busy}
+              onChange={(e) => {
+                void onFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        </Hint>
+        {empty && canLoadDemo && (
+          <Hint hint={busy ? LOADING_HINT : undefined}>
+            <button type="button" className={BUTTON_SECONDARY} disabled={!!busy} onClick={() => void onDemo()}>
+              <FolderOpen {...ICON} />
+              Загрузить демо-данные
+            </button>
+          </Hint>
+        )}
+      </div>
+      {empty && (
+        <p className={HINT}>Файлы .md, .txt, .pdf и .docx. PDF нужен с текстом: скан без текстового слоя не прочитается.</p>
+      )}
 
       <details className="text-sm">
-        <summary className="cursor-pointer select-none">Вставить текст</summary>
+        <summary className="w-fit cursor-pointer select-none text-link hover:underline">Вставить текст</summary>
         <div className="mt-2 flex flex-col gap-2">
           <input
             className={INPUT}
@@ -175,20 +266,32 @@ export function DocumentsStep({
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
           />
-          <button
-            type="button"
-            className={`${BUTTON_SECONDARY} w-fit`}
-            disabled={!!busy || !pasteName.trim() || !pasteText.trim()}
-            onClick={() => void onPaste()}
+          <Hint
+            hint={
+              busy
+                ? LOADING_HINT
+                : !pasteName.trim() || !pasteText.trim()
+                  ? "Введите название и текст документа."
+                  : undefined
+            }
           >
-            Добавить документ
-          </button>
+            <button
+              type="button"
+              className={BUTTON_SECONDARY}
+              disabled={!!busy || !pasteName.trim() || !pasteText.trim()}
+              onClick={() => void onPaste()}
+            >
+              <FilePlus {...ICON} />
+              Добавить к документам
+            </button>
+          </Hint>
         </div>
       </details>
 
-      {busy && (
-        <p className={HINT} role="status">
-          {busy}
+      {busy && <Progress>{busy}</Progress>}
+      {notice && (
+        <p className="text-sm text-link" role="status">
+          {notice.text}
         </p>
       )}
       {error && (
@@ -197,39 +300,43 @@ export function DocumentsStep({
         </p>
       )}
 
-      {documents.length === 0 ? (
-        <p className={HINT}>Документов пока нет.</p>
-      ) : (
-        <ul className="flex flex-col divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+      {!empty && (
+        <ul className="flex flex-col divide-y divide-line text-sm">
           {documents.map((d) => (
             <li key={d.name} className="flex items-center justify-between gap-3 py-2">
               <span className="min-w-0 break-words">{d.name}</span>
               <span className="flex shrink-0 items-center gap-3">
-                <span className="text-zinc-600 dark:text-zinc-400">
+                <span className="text-muted">
                   {d.chunkCount} {plural(d.chunkCount, ["фрагмент", "фрагмента", "фрагментов"])}
                 </span>
-                <button
-                  type="button"
-                  className="text-red-700 hover:underline disabled:opacity-40 dark:text-red-400"
-                  disabled={!!busy}
-                  onClick={() => void onDelete({ name: d.name })}
-                >
-                  Удалить
-                </button>
+                <Hint hint={busy ? LOADING_HINT : undefined} align="end">
+                  <button
+                    type="button"
+                    className={DANGER_LINK}
+                    disabled={!!busy}
+                    onClick={() => void onDelete({ name: d.name })}
+                  >
+                    <Trash2 size={14} aria-hidden />
+                    Удалить
+                  </button>
+                </Hint>
               </span>
             </li>
           ))}
         </ul>
       )}
-      {documents.length > 0 && (
-        <button
-          type="button"
-          className="w-fit text-sm text-red-700 hover:underline disabled:opacity-40 dark:text-red-400"
-          disabled={!!busy}
-          onClick={() => void onDelete({ all: true })}
-        >
-          Удалить все документы
-        </button>
+      {!empty && (
+        <Hint hint={busy ? LOADING_HINT : undefined} className="w-fit">
+          <button
+            type="button"
+            className={DANGER_LINK}
+            disabled={!!busy}
+            onClick={() => void onDelete({ all: true })}
+          >
+            <Trash2 size={14} aria-hidden />
+            Удалить все документы
+          </button>
+        </Hint>
       )}
     </section>
   );

@@ -27,6 +27,13 @@ const DOCUMENT_SERVICE_ERRORS: Record<ServiceErrorKind, string> = {
     "Сервис модели ответил ошибкой. Если ошибка повторится, проверьте настройки модели через маршрут проверки подключений.",
 };
 
+// «Загрузить демо-данные» в режиме api: аналитик сам ничего не загружал — совет нажать кнопку ещё раз
+const DEMO_SERVICE_ERRORS: Record<ServiceErrorKind, string> = {
+  ...DOCUMENT_SERVICE_ERRORS,
+  rateLimit: "Сервис модели ответил «слишком много запросов». Подождите минуту и нажмите кнопку ещё раз.",
+  unavailable: "Сервис модели сейчас не отвечает. Нажмите кнопку ещё раз чуть позже.",
+};
+
 // Непредвиденная ошибка в самом приложении: текст ошибки — в терминале запуска, где выполнена
 // команда npm run dev (logError)
 const UNEXPECTED_ERRORS = {
@@ -98,8 +105,37 @@ export function userErrorText(error: unknown, action: "process" | "spec" = "proc
 }
 
 // Ошибка сервиса при загрузке документов (режим api) — понятным текстом; null — ошибка не от сервиса
-export function documentServiceErrorText(error: unknown): string | null {
+function documentServiceErrorText(error: unknown, action: "documents" | "demo"): string | null {
   if (!AISDKError.isInstance(error)) return null;
   logError(error);
-  return DOCUMENT_SERVICE_ERRORS[serviceErrorKind(error)];
+  return (action === "demo" ? DEMO_SERVICE_ERRORS : DOCUMENT_SERVICE_ERRORS)[serviceErrorKind(error)];
+}
+
+// Что не удалось — начало текста ошибки, и общий текст для прочих сбоев: при загрузке документов
+// аналитик загружает их снова, при демо-данных — нажимает кнопку ещё раз
+const INDEXING_FAILED = {
+  documents: {
+    what: "Не удалось проиндексировать документы.",
+    other: "Не удалось проиндексировать документы. Загрузите их снова. Если ошибка повторится, текст ошибки — в терминале запуска.",
+  },
+  demo: {
+    what: "Не удалось загрузить демо-данные.",
+    other: "Не удалось загрузить демо-данные. Нажмите кнопку ещё раз. Если ошибка повторится, текст ошибки — в терминале запуска.",
+  },
+};
+
+// Ответ маршрута, если индексация документов не удалась (загрузка документов и демо-данных)
+export function indexingErrorResponse(error: unknown, action: keyof typeof INDEXING_FAILED = "documents"): Response {
+  const texts = INDEXING_FAILED[action];
+  // Ошибка настроек в .env.local — как есть: в тексте только имена переменных, без значений
+  if (error instanceof ConfigError) {
+    return Response.json({ error: `${texts.what} ${error.message}` }, { status: 500 });
+  }
+  // В режиме EMBEDDINGS_MODE=api эмбеддинги считает сервис модели — его ошибки понятным текстом
+  const service = documentServiceErrorText(error, action);
+  if (service) return Response.json({ error: `${texts.what} ${service}` }, { status: 502 });
+  // Прочее (например, не скачалась модель эмбеддингов или не нашлась папка demo/) — общим текстом,
+  // текст ошибки — в терминале запуска
+  logError(error);
+  return Response.json({ error: texts.other }, { status: 500 });
 }

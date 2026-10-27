@@ -1,5 +1,6 @@
 "use client";
 
+import { FileText, Pencil, RefreshCw, RotateCw, Tag, Trash2, Undo2 } from "lucide-react";
 import { Fragment, useState } from "react";
 import { PATH_SEPARATOR } from "@/lib/chunking";
 import {
@@ -25,12 +26,17 @@ import {
 } from "@/lib/verdicts";
 import { RequestTextEditor, SpecEditor, VerdictEditor } from "./card-editors";
 import { CopyButton } from "./copy-button";
-import { BUTTON, BUTTON_SECONDARY, ERROR, HINT } from "./ui";
+import { Hint } from "./hint";
+import { Progress } from "./progress";
+import { BUSY_HINT, BUTTON, BUTTON_SECONDARY, DANGER_LINK, ERROR, HINT, ICON, LINK_BUTTON } from "./ui";
 
 // Карточка выбранной заявки. Весь текст из документов, заявок и ответов модели выводится
 // только как текст (React экранирует его), без вставки HTML.
 
 const SOURCE_PREVIEW_CHARS = 200;
+
+// Карточка появляется коротко и спокойно; при «уменьшить движение» — без анимации
+const CARD = "flex flex-col gap-5 motion-safe:animate-appear";
 
 // queued и processing — обработка заявки, spec — «Подготовить основу ТЗ»
 export type RunState = "queued" | "processing" | "spec";
@@ -58,7 +64,7 @@ function Block({ title, mark, action, children }: {
   return (
     <section className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+        <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted">
           {title}
           {mark}
         </h3>
@@ -87,7 +93,7 @@ export function ReviewMark() {
 // Пометка «изменено вручную» — у вердикта и основы ТЗ, которые исправил аналитик
 function ManualMark() {
   return (
-    <span className="inline-block rounded border border-zinc-400 px-2 py-0.5 text-xs font-medium normal-case tracking-normal text-zinc-700 dark:border-zinc-500 dark:text-zinc-300">
+    <span className="inline-block rounded border border-line-strong px-2 py-0.5 text-xs font-medium normal-case tracking-normal text-muted">
       {MANUAL_MARK}
     </span>
   );
@@ -102,7 +108,7 @@ function WithRefs({ text, requestId, known }: { text: string; requestId: string;
         const n = /^\[(\d+)\]$/.exec(part);
         if (n && known.has(Number(n[1]))) {
           return (
-            <a key={i} href={`#source-${requestId}-${n[1]}`} className="text-sky-700 hover:underline dark:text-sky-400">
+            <a key={i} href={`#source-${requestId}-${n[1]}`} className="text-link hover:underline">
               {part}
             </a>
           );
@@ -122,13 +128,13 @@ function SourceItem({ source, requestId }: { source: Source; requestId: string }
       <p className="break-words font-medium">
         [{source.n}] {source.path.join(PATH_SEPARATOR)}
       </p>
-      <p className="whitespace-pre-wrap break-words text-zinc-600 dark:text-zinc-400">
+      <p className="whitespace-pre-wrap break-words text-muted">
         {long && !full ? `${source.text.slice(0, SOURCE_PREVIEW_CHARS).trimEnd()}…` : source.text}
       </p>
       {long && (
         <button
           type="button"
-          className="text-sky-700 hover:underline dark:text-sky-400"
+          className="text-link hover:underline"
           aria-expanded={full}
           onClick={() => setFull((f) => !f)}
         >
@@ -138,8 +144,6 @@ function SourceItem({ source, requestId }: { source: Source; requestId: string }
     </li>
   );
 }
-
-const LINK_BUTTON = "text-sm text-sky-700 hover:underline disabled:opacity-40 disabled:no-underline dark:text-sky-400";
 
 export function RequestCard({
   request,
@@ -194,42 +198,59 @@ function Card({
   const verdict = currentVerdict(request);
   const review = currentReview(request);
   const spec = currentSpec(request);
+  // Почему кнопки неактивны — при наведении
+  const busyHint = busy ? BUSY_HINT : undefined;
 
   async function run(action: () => Promise<string | null>) {
     setError(null);
     setError(await action());
   }
 
+  const canProcessAgain = !!result && request.status === "done";
+
   const toolbar = (
-    <div className="flex flex-wrap items-center gap-2">
-      {result && request.status === "done" && (
-        <button
-          type="button"
-          className={BUTTON_SECONDARY}
-          disabled={busy}
-          onClick={() => void run(() => actions.process(request.id, { again: true }))}
-        >
-          Обработать заново
-        </button>
-      )}
-      {request.previous && (
-        <button
-          type="button"
-          className={BUTTON_SECONDARY}
-          disabled={busy}
-          onClick={() => void run(() => actions.edit({ action: "restore", id: request.id }))}
-        >
-          Вернуть прежний вариант
-        </button>
-      )}
-      <button
-        type="button"
-        className="ml-auto text-sm text-red-700 hover:underline disabled:opacity-40 dark:text-red-400"
-        disabled={busy}
-        onClick={() => void run(() => actions.remove(request))}
-      >
-        Удалить
-      </button>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        {canProcessAgain && (
+          <Hint hint={busyHint}>
+            <button
+              type="button"
+              className={BUTTON_SECONDARY}
+              disabled={busy}
+              onClick={() => void run(() => actions.process(request.id, { again: true }))}
+            >
+              <RefreshCw {...ICON} />
+              Обработать заново
+            </button>
+          </Hint>
+        )}
+        {request.previous && (
+          <Hint hint={busyHint}>
+            <button
+              type="button"
+              className={BUTTON_SECONDARY}
+              disabled={busy}
+              onClick={() => void run(() => actions.edit({ action: "restore", id: request.id }))}
+            >
+              <Undo2 {...ICON} />
+              Вернуть прежний вариант
+            </button>
+          </Hint>
+        )}
+        <Hint hint={busyHint} align="end" className="ml-auto">
+          <button
+            type="button"
+            className={DANGER_LINK}
+            disabled={busy}
+            onClick={() => void run(() => actions.remove(request))}
+          >
+            <Trash2 size={14} aria-hidden />
+            Удалить
+          </button>
+        </Hint>
+      </div>
+      {/* Аналитику в этот момент важно, не потеряется ли результат */}
+      {canProcessAgain && <p className={HINT}>Текущий результат сохранится — его можно будет вернуть.</p>}
     </div>
   );
 
@@ -252,9 +273,12 @@ function Card({
       title="Исходная заявка"
       action={
         editing !== "text" && (
-          <button type="button" className={LINK_BUTTON} disabled={busy} onClick={editText}>
-            Править
-          </button>
+          <Hint hint={busyHint}>
+            <button type="button" className={LINK_BUTTON} disabled={busy} onClick={editText}>
+              <Pencil size={14} aria-hidden />
+              Править
+            </button>
+          </Hint>
         )
       }
     >
@@ -265,6 +289,7 @@ function Card({
           error={draftError}
           hasResult={request.status === "done"}
           disabled={busy}
+          processing={runState === "processing"}
           onProcess={() => void processDraft()}
           onCancel={() => setEditing(null)}
         />
@@ -276,28 +301,34 @@ function Card({
 
   const status =
     runState === "processing" ? (
-      <p className={HINT} role="status">
-        Обрабатывается…
-      </p>
+      // Исправленный текст обрабатывается — строка о процессе в самой форме, у её кнопки
+      editing === "text" ? (
+        <></>
+      ) : (
+        <Progress>Обрабатывается…</Progress>
+      )
     ) : runState === "queued" ? (
       <p className={HINT}>В очереди на обработку.</p>
     ) : request.status === "error" ? (
       <Block title="Ошибка">
         <p className={ERROR}>{request.error}</p>
-        <button
-          type="button"
-          className={`${BUTTON} w-fit`}
-          disabled={busy}
-          onClick={() => void actions.process(request.id)}
-        >
-          Повторить
-        </button>
+        <Hint hint={busyHint}>
+          <button
+            type="button"
+            className={`${BUTTON} w-fit`}
+            disabled={busy}
+            onClick={() => void actions.process(request.id)}
+          >
+            <RotateCw {...ICON} />
+            Повторить
+          </button>
+        </Hint>
       </Block>
     ) : null;
 
   if (!result || !verdict) {
     return (
-      <div className="flex flex-col gap-5">
+      <div className={CARD}>
         <p className="text-sm font-medium">Заявка №{request.number}</p>
         {toolbar}
         {previousHint}
@@ -317,17 +348,20 @@ function Card({
   const questions = spec?.manual ? specQuestions(spec.text) : (result.spec?.questions ?? []);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className={CARD}>
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <VerdictLabel verdict={verdict.verdict} taskNumber={verdict.taskNumber} />
           {review.length > 0 && <ReviewMark />}
           {verdict.manual && <ManualMark />}
-          <span className="ml-1 text-sm text-zinc-600 dark:text-zinc-400">Заявка №{request.number}</span>
+          <span className="ml-1 text-sm text-muted">Заявка №{request.number}</span>
           {editing !== "verdict" && (
-            <button type="button" className={LINK_BUTTON} disabled={busy} onClick={() => setEditing("verdict")}>
-              Изменить вердикт
-            </button>
+            <Hint hint={busyHint}>
+              <button type="button" className={LINK_BUTTON} disabled={busy} onClick={() => setEditing("verdict")}>
+                <Tag size={14} aria-hidden />
+                Изменить вердикт
+              </button>
+            </Hint>
           )}
         </div>
         {/* Каждая причина — отдельной строкой */}
@@ -367,11 +401,11 @@ function Card({
 
       <Block title="Разбор">
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-          <dt className="text-zinc-600 dark:text-zinc-400">Кто</dt>
+          <dt className="text-muted">Кто</dt>
           <dd className="break-words">{result.analysis.who}</dd>
-          <dt className="text-zinc-600 dark:text-zinc-400">Что</dt>
+          <dt className="text-muted">Что</dt>
           <dd className="break-words">{result.analysis.what}</dd>
-          <dt className="text-zinc-600 dark:text-zinc-400">Где в системе</dt>
+          <dt className="text-muted">Где в системе</dt>
           <dd className="break-words">{result.analysis.where}</dd>
         </dl>
       </Block>
@@ -410,9 +444,12 @@ function Card({
                     label="Копировать вопросы"
                   />
                 )}
-                <button type="button" className={BUTTON_SECONDARY} disabled={busy} onClick={() => setEditing("spec")}>
-                  Править
-                </button>
+                <Hint hint={busyHint}>
+                  <button type="button" className={BUTTON_SECONDARY} disabled={busy} onClick={() => setEditing("spec")}>
+                    <Pencil {...ICON} />
+                    Править
+                  </button>
+                </Hint>
                 <CopyButton text={spec.text} />
               </span>
             )
@@ -426,7 +463,7 @@ function Card({
               onCancel={() => setEditing(null)}
             />
           ) : (
-            <pre className="whitespace-pre-wrap break-words rounded-md bg-zinc-50 p-3 font-sans text-sm dark:bg-zinc-900">
+            <pre className="whitespace-pre-wrap break-words rounded-md bg-subtle p-3 font-sans text-sm">
               {spec.text}
             </pre>
           )}
@@ -435,24 +472,25 @@ function Card({
         <Block
           title="Основа ТЗ"
           action={
-            <button
-              type="button"
-              className={BUTTON_SECONDARY}
-              disabled={busy}
-              onClick={() => {
-                setSpecError(null);
-                void actions.prepareSpec(request.id).then(setSpecError);
-              }}
-            >
-              {/* После ошибки — «Повторить», как в её тексте */}
-              {specError ? "Повторить" : "Подготовить основу ТЗ"}
-            </button>
+            <Hint hint={busyHint}>
+              <button
+                type="button"
+                className={BUTTON_SECONDARY}
+                disabled={busy}
+                onClick={() => {
+                  setSpecError(null);
+                  void actions.prepareSpec(request.id).then(setSpecError);
+                }}
+              >
+                {/* После ошибки — «Повторить», как в её тексте */}
+                {specError ? <RotateCw {...ICON} /> : <FileText {...ICON} />}
+                {specError ? "Повторить" : "Подготовить основу ТЗ"}
+              </button>
+            </Hint>
           }
         >
           {runState === "spec" ? (
-            <p className={HINT} role="status">
-              Готовлю основу ТЗ…
-            </p>
+            <Progress>Готовлю основу ТЗ…</Progress>
           ) : (
             <p className={HINT}>Модель подготовит основу ТЗ по источникам этой заявки.</p>
           )}

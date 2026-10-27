@@ -92,17 +92,16 @@ export function summarize(documents: StoredDocument[]): DocumentSummary[] {
   return documents.map((d) => ({ name: d.name, chunkCount: d.chunks.length, addedAt: d.addedAt }));
 }
 
+function withRoundedVectors(document: StoredDocument): StoredDocument {
+  return { ...document, chunks: document.chunks.map((c) => ({ ...c, embedding: roundVector(c.embedding) })) };
+}
+
 // Документ с тем же именем заменяется
 export function saveDocuments(added: StoredDocument[]): Promise<StoredDocument[]> {
   return serialized(async () => {
     const names = new Set(added.map((d) => d.name));
     const documents = (await readDocuments()).filter((d) => !names.has(d.name));
-    documents.push(
-      ...added.map((d) => ({
-        ...d,
-        chunks: d.chunks.map((c) => ({ ...c, embedding: roundVector(c.embedding) })),
-      })),
-    );
+    documents.push(...added.map(withRoundedVectors));
     await writeJson(INDEX_FILE, { documents } satisfies IndexFile);
     return documents;
   });
@@ -133,17 +132,46 @@ export async function readRequests(): Promise<IncomingRequest[]> {
 }
 
 // Новые заявки добавляются в конец списка, номера продолжают нумерацию
+function pushRequests(requests: IncomingRequest[], texts: string[]): void {
+  let number = requests.reduce((max, r) => Math.max(max, r.number), 0);
+  const addedAt = new Date().toISOString();
+  for (const text of texts) {
+    number += 1;
+    requests.push({ id: randomUUID(), number, text, addedAt, status: "pending", result: null, error: null });
+  }
+}
+
 export function appendRequests(texts: string[]): Promise<IncomingRequest[]> {
   return serialized(async () => {
     const requests = await readRequests();
-    let number = requests.reduce((max, r) => Math.max(max, r.number), 0);
-    const addedAt = new Date().toISOString();
-    for (const text of texts) {
-      number += 1;
-      requests.push({ id: randomUUID(), number, text, addedAt, status: "pending", result: null, error: null });
-    }
+    pushRequests(requests, texts);
     await writeJson(REQUESTS_FILE, { requests } satisfies RequestsFile);
     return requests;
+  });
+}
+
+// «Загрузить демо-данные»: документы и заявки записываются, только если нет ни тех, ни других.
+// Проверка и запись — без чужих записей посередине: документы или заявки могли появиться,
+// пока индексировались демо-документы (например, из другой вкладки). null — данные уже есть, ничего не изменено
+export function saveDemoData(
+  added: StoredDocument[],
+  texts: string[],
+): Promise<{ documents: StoredDocument[]; requests: IncomingRequest[] } | null> {
+  return serialized(async () => {
+    if ((await readDocuments()).length > 0 || (await readRequests()).length > 0) return null;
+    const documents = added.map(withRoundedVectors);
+    const requests: IncomingRequest[] = [];
+    pushRequests(requests, texts);
+    await writeJson(INDEX_FILE, { documents } satisfies IndexFile);
+    try {
+      await writeJson(REQUESTS_FILE, { requests } satisfies RequestsFile);
+    } catch (error) {
+      // Заявки не записались — документы убираются: иначе демо-документы остались бы без заявок,
+      // а кнопка «Загрузить демо-данные» больше не появилась бы (документы уже есть)
+      await writeJson(INDEX_FILE, { documents: [] } satisfies IndexFile);
+      throw error;
+    }
+    return { documents, requests };
   });
 }
 

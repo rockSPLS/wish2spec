@@ -1,6 +1,6 @@
 import { connection } from "next/server";
-import { ConfigError, embeddingsModeForNotice } from "@/lib/config";
-import { documentServiceErrorText, logError } from "@/lib/errors";
+import { embeddingsModeForNotice } from "@/lib/config";
+import { indexingErrorResponse } from "@/lib/errors";
 import { docxToMarkdown, ExtractError, pdfToText } from "@/lib/extract";
 import { rejectForeignRequest } from "@/lib/guard";
 import {
@@ -71,19 +71,7 @@ export async function POST(request: Request) {
     return Response.json({ documents: summarize(documents) });
   } catch (e) {
     if (e instanceof ExtractError) return badRequest(e.message);
-    // Ошибка настроек в .env.local — как есть: в тексте только имена переменных, без значений
-    if (e instanceof ConfigError) {
-      return Response.json({ error: `Не удалось проиндексировать документы. ${e.message}` }, { status: 500 });
-    }
-    // В режиме EMBEDDINGS_MODE=api эмбеддинги считает сервис модели — его ошибки понятным текстом
-    const service = documentServiceErrorText(e);
-    if (service) return Response.json({ error: `Не удалось проиндексировать документы. ${service}` }, { status: 502 });
-    // Прочее (например, не скачалась модель эмбеддингов) — общим текстом, текст ошибки — в терминале запуска
-    logError(e);
-    return Response.json(
-      { error: "Не удалось проиндексировать документы. Загрузите их снова. Если ошибка повторится, текст ошибки — в терминале запуска." },
-      { status: 500 },
-    );
+    return indexingErrorResponse(e);
   }
 }
 

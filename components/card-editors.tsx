@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { LIMIT_MESSAGES, LIMITS } from "@/lib/limits";
 import { VERDICTS, type Verdict } from "@/lib/types";
 import { verdictLabel } from "@/lib/verdicts";
-import { BUTTON, BUTTON_SECONDARY, ERROR, HINT, INPUT } from "./ui";
+import { Hint } from "./hint";
+import { Spinner } from "./progress";
+import { BUSY_HINT, BUTTON, BUTTON_SECONDARY, ERROR, HINT, ICON, INPUT } from "./ui";
 
 // Формы правки в карточке заявки: вердикт, основа ТЗ, текст заявки.
 // Каждая сохраняет через onSave и показывает ошибку сервера у своих кнопок
@@ -13,21 +16,30 @@ type Save<T> = (value: T) => Promise<string | null>;
 
 function Buttons({
   saveLabel,
+  icon,
   disabled,
+  cancelDisabled = false,
+  hint,
   onSave,
   onCancel,
 }: {
   saveLabel: string;
+  icon?: ReactNode;
   disabled: boolean;
+  cancelDisabled?: boolean;
+  hint?: string;
   onSave: () => void;
   onCancel: () => void;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <button type="button" className={BUTTON} disabled={disabled} onClick={onSave}>
-        {saveLabel}
-      </button>
-      <button type="button" className={BUTTON_SECONDARY} onClick={onCancel}>
+      <Hint hint={disabled ? hint : undefined}>
+        <button type="button" className={BUTTON} disabled={disabled} onClick={onSave}>
+          {icon}
+          {saveLabel}
+        </button>
+      </Hint>
+      <button type="button" className={BUTTON_SECONDARY} disabled={cancelDisabled} onClick={onCancel}>
         Отмена
       </button>
     </div>
@@ -65,12 +77,19 @@ export function VerdictEditor({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-zinc-300 p-3 dark:border-zinc-700">
+    <div className="flex flex-col gap-3 rounded-md border border-line-strong p-3">
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 text-sm font-medium">Вердикт</legend>
         {VERDICTS.map((v) => (
           <label key={v} className="flex items-center gap-2 text-sm">
-            <input type="radio" name="verdict" value={v} checked={choice === v} onChange={() => setChoice(v)} />
+            <input
+              type="radio"
+              name="verdict"
+              value={v}
+              checked={choice === v}
+              onChange={() => setChoice(v)}
+              className="accent-brand"
+            />
             {verdictLabel(v, null)}
           </label>
         ))}
@@ -87,7 +106,13 @@ export function VerdictEditor({
           {number.trim() !== "" && !numberOk && <span className={ERROR}>{LIMIT_MESSAGES.taskNumber()}</span>}
         </label>
       )}
-      <Buttons saveLabel="Сохранить" disabled={disabled || saving || !numberOk} onSave={() => void save()} onCancel={onCancel} />
+      <Buttons
+        saveLabel="Сохранить"
+        disabled={disabled || saving || !numberOk}
+        hint={disabled ? BUSY_HINT : choice === "similar" && number.trim() === "" ? "Укажите номер задачи." : undefined}
+        onSave={() => void save()}
+        onCancel={onCancel}
+      />
       {error && (
         <p className={ERROR} role="alert">
           {error}
@@ -132,7 +157,13 @@ export function SpecEditor({
         onChange={(e) => setValue(e.target.value)}
       />
       {problem && <p className={ERROR}>{problem}</p>}
-      <Buttons saveLabel="Сохранить" disabled={disabled || saving || !!problem} onSave={() => void save()} onCancel={onCancel} />
+      <Buttons
+        saveLabel="Сохранить"
+        disabled={disabled || saving || !!problem}
+        hint={disabled ? BUSY_HINT : undefined}
+        onSave={() => void save()}
+        onCancel={onCancel}
+      />
       {error && (
         <p className={ERROR} role="alert">
           {error}
@@ -144,13 +175,15 @@ export function SpecEditor({
 
 // «Править» у текста заявки: исправленный текст сразу уходит на обработку («Обработать заново»).
 // Текст формы и ошибку хранит карточка: пока идёт отправка, карточка перестраивается, а если
-// обработку не удалось начать, исправленный текст не должен пропасть
+// обработку не удалось начать, исправленный текст не должен пропасть.
+// Пока заявка обрабатывается (processing), поле и кнопки неактивны, на кнопке — «Обрабатывается…»
 export function RequestTextEditor({
   value,
   onChange,
   error,
   hasResult,
   disabled,
+  processing,
   onProcess,
   onCancel,
 }: {
@@ -159,6 +192,7 @@ export function RequestTextEditor({
   error: string | null;
   hasResult: boolean;
   disabled: boolean;
+  processing: boolean;
   onProcess: () => void;
   onCancel: () => void;
 }) {
@@ -174,14 +208,23 @@ export function RequestTextEditor({
       <textarea
         className={`${INPUT} min-h-40`}
         aria-label="Текст заявки"
+        disabled={processing}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
       {hasResult && (
-        <p className={HINT}>Текущий результат вместе с правками сохранится как прежний вариант — его можно будет вернуть.</p>
+        <p className={HINT}>Текущий результат сохранится — его можно будет вернуть.</p>
       )}
       {problem && <p className={ERROR}>{problem}</p>}
-      <Buttons saveLabel="Обработать заново" disabled={disabled || !!problem} onSave={onProcess} onCancel={onCancel} />
+      <Buttons
+        saveLabel={processing ? "Обрабатывается…" : "Обработать заново"}
+        icon={processing ? <Spinner /> : <RefreshCw {...ICON} />}
+        disabled={disabled || processing || !!problem}
+        hint={disabled && !processing ? BUSY_HINT : undefined}
+        cancelDisabled={processing}
+        onSave={onProcess}
+        onCancel={onCancel}
+      />
       {error && (
         <p className={ERROR} role="alert">
           {error}

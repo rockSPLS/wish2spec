@@ -18,7 +18,7 @@ const requestText = z
 const documentName = z
   .string()
   .trim()
-  .min(1, { error: "нет названия" })
+  .min(1, { error: "document-name-empty" })
   .max(LIMITS.documentNameChars, { error: "document-name-too-long" });
 
 // .md, .txt и вставленный текст приходят текстом
@@ -65,7 +65,7 @@ export const deleteDocumentSchema = z.union([
 export const addRequestsSchema = z.object({
   texts: z
     .array(requestText.transform((s) => s.trim()))
-    .min(1, { error: "нет заявок" })
+    .min(1, { error: "no-requests" })
     .max(LIMITS.requestsPerAdd, { error: "too-many-requests" }),
 });
 
@@ -107,6 +107,9 @@ export const editRequestSchema = z.discriminatedUnion("action", [
   }),
   z.object({ action: z.literal("restore"), id: requestId }),
 ]);
+
+// «Загрузить демо-данные»: тело пустое ({}) — какие файлы загрузить, задано на сервере (lib/demo.ts)
+export const demoDataSchema = z.object({});
 
 // Только для маршрута замера (npm run dev)
 export const measureSchema = z.object({
@@ -157,6 +160,11 @@ function issueText(issue: z.core.$ZodIssue, body: unknown): string {
       return n === null ? LIMIT_MESSAGES.requestTextTooLong() : LIMIT_MESSAGES.requestTooLong(n);
     case "request-empty":
       return n === null ? LIMIT_MESSAGES.requestTextEmpty() : LIMIT_MESSAGES.requestEmpty(n);
+    // Пустой запрос (например, если неактивную кнопку включили вручную) — понятным текстом, что не так
+    case "no-requests":
+      return "Вставьте заявки в поле или загрузите .txt.";
+    case "document-name-empty":
+      return "Введите название документа.";
     case "too-many-requests":
       return LIMIT_MESSAGES.tooManyRequests(record.texts?.length ?? 0);
     case "document-name-too-long":

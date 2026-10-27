@@ -173,7 +173,16 @@ export function Workspace() {
   return (
     <div className="flex flex-col gap-6">
       <div className="grid gap-6 md:grid-cols-2">
-        <DocumentsStep documents={documents} onChange={setDocuments} />
+        <DocumentsStep
+          documents={documents}
+          onChange={setDocuments}
+          canLoadDemo={documents.length === 0 && requests.length === 0}
+          unprocessed={requests.filter((r) => r.status !== "done").length}
+          onDemoLoaded={(data) => {
+            setDocuments(data.documents);
+            setRequests(data.requests);
+          }}
+        />
         <RequestsStep onAdded={setRequests} embeddingsMode={embeddingsMode} />
       </div>
       <ResultsStep

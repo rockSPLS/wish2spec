@@ -108,7 +108,8 @@ export function humanizeVerdictIds(text: string): string {
   });
 }
 
-// Цвета ярлыков — простые и различимые; дизайн будет в версии 0.4
+// Цвета ярлыков — свои у каждого вердикта, отдельно от фирменного цвета (app/globals.css):
+// ярлык не должен сливаться с кнопками
 export const VERDICT_STYLE: Record<Verdict, string> = {
   exists: "bg-green-100 text-green-900 dark:bg-green-900/50 dark:text-green-100",
   similar: "bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:text-sky-100",

@@ -1,6 +1,6 @@
 {
   "name": "wish2spec",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "engines": {
     "node": ">=20.9"
@@ -20,6 +20,7 @@
     "@ai-sdk/openai-compatible": "^2.0.87",
     "@huggingface/transformers": "^4.3.1",
     "ai": "^6.0.314",
+    "lucide-react": "^1.61.0",
     "mammoth": "^1.13.0",
     "next": "16.4.3",
     "react": "19.3.0",

@@ -1,7 +1,8 @@
 "use client";
 
+import { Check, Copy } from "lucide-react";
 import { useState } from "react";
-import { BUTTON_SECONDARY } from "./ui";
+import { BUTTON_SECONDARY, ICON } from "./ui";
 
 // «Копировать» — Markdown в буфер обмена, чтобы вставить в трекер или письмо
 export function CopyButton({ text, label = "Копировать" }: { text: string; label?: string }) {
@@ -19,6 +20,7 @@ export function CopyButton({ text, label = "Копировать" }: { text: str
 
   return (
     <button type="button" className={BUTTON_SECONDARY} onClick={() => void copy()} aria-live="polite">
+      {state === "copied" ? <Check {...ICON} /> : <Copy {...ICON} />}
       {state === "copied" ? "Скопировано" : state === "failed" ? "Не удалось скопировать" : label}
     </button>
   );

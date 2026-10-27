@@ -1,11 +1,13 @@
 "use client";
 
+import { ListPlus, TriangleAlert, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { LIMIT_MESSAGES, LIMITS } from "@/lib/limits";
 import { splitRequests } from "@/lib/split-requests";
 import type { IncomingRequest } from "@/lib/types";
 import { callApi, plural } from "./api";
-import { BUTTON, ERROR, FILE_BUTTON, HINT, INPUT, SECTION, STEP_TITLE } from "./ui";
+import { Hint } from "./hint";
+import { BUTTON, ERROR, FILE_BUTTON_SECONDARY, HINT, ICON, INPUT, SECTION, STEP_NUMBER, STEP_TITLE } from "./ui";
 
 // Шаг 2. Входящие заявки: загрузка .txt или вставка, «Найдено N» и список до добавления
 
@@ -63,13 +65,16 @@ export function RequestsStep({
   return (
     <section className={SECTION} aria-labelledby="step-requests">
       <h2 id="step-requests" className={STEP_TITLE}>
-        2. Входящие заявки
+        <span className={STEP_NUMBER}>2</span>
+        <span className="sr-only">. </span>
+        Входящие заявки
       </h2>
       <p className={HINT}>
         Заявки разделяются пустой строкой. Если пустых строк нет, каждая строка — отдельная заявка.
       </p>
 
-      <label className={FILE_BUTTON}>
+      <label className={FILE_BUTTON_SECONDARY}>
+        <Upload {...ICON} />
         Загрузить .txt
         <input
           type="file"
@@ -111,16 +116,20 @@ export function RequestsStep({
         </p>
       )}
 
-      <button
-        type="button"
-        className={`${BUTTON} w-fit`}
-        disabled={busy || found.length === 0 || problems.length > 0}
-        onClick={() => void onAdd()}
-      >
-        {found.length > 0
-          ? `Добавить ${found.length} ${plural(found.length, ["заявку", "заявки", "заявок"])} в список`
-          : "Добавить в список"}
-      </button>
+      {/* Почему кнопка неактивна — подсказкой при наведении; если не так с самими заявками — сообщение выше */}
+      <Hint hint={found.length === 0 ? "Вставьте заявки в поле или загрузите .txt." : undefined}>
+        <button
+          type="button"
+          className={BUTTON}
+          disabled={busy || found.length === 0 || problems.length > 0}
+          onClick={() => void onAdd()}
+        >
+          <ListPlus {...ICON} />
+          {found.length > 0
+            ? `Добавить ${found.length} ${plural(found.length, ["заявку", "заявки", "заявок"])} в список`
+            : "Добавить в список"}
+        </button>
+      </Hint>
 
       {error && (
         <p className={ERROR} role="alert">
@@ -128,8 +137,10 @@ export function RequestsStep({
         </p>
       )}
 
-      <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
-        {SERVICE_NOTICE[embeddingsMode]}
+      {/* Нейтральная строка: жёлтый блок совпал бы с ярлыком «Требуется уточнение», внимание несёт значок */}
+      <p className={`flex items-start gap-2 ${HINT}`}>
+        <TriangleAlert size={16} aria-hidden className="mt-0.5 shrink-0 text-warning" />
+        <span>{SERVICE_NOTICE[embeddingsMode]}</span>
       </p>
     </section>
   );

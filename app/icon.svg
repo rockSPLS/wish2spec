@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+<!-- Значок вкладки Wish2Spec: облачко переходит в стрелку, стрелка входит в открытый угол карточки; сетка 32×32 -->
+<defs>
+<linearGradient id="w2s-plate" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="32"><stop offset="0" stop-color="#06ab7d"/><stop offset="1" stop-color="#00705c"/></linearGradient>
+<linearGradient id="w2s-bubble" gradientUnits="userSpaceOnUse" x1="8" y1="0" x2="18" y2="0"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d4f1e6"/></linearGradient>
+</defs>
+<rect width="32" height="32" rx="7" fill="url(#w2s-plate)"/>
+<path d="M22 10H26A4 4 0 0 1 30 14V24A4 4 0 0 1 26 28H18A4 4 0 0 1 14 24V20L16 18V24A2 2 0 0 0 18 26H26A2 2 0 0 0 28 24V14A2 2 0 0 0 26 12H22Z" fill="#ffffff"/>
+<g fill="#ffffff"><rect x="18" y="18" width="2" height="2"/><rect x="22" y="18" width="4" height="2"/><rect x="18" y="22" width="2" height="2"/><rect x="22" y="22" width="4" height="2"/></g>
+<path d="M5 4H11.59A3.41 3.41 0 0 1 14 5L19.29 10.29A1 1 0 0 1 19.29 11.71L14 17A3.41 3.41 0 0 1 11.59 18H10L4 24V18A3 3 0 0 1 2 15V7A3 3 0 0 1 5 4Z" fill="url(#w2s-bubble)"/>
+<g fill="#06876a"><rect x="6" y="8" width="7" height="2"/><rect x="6" y="12" width="5" height="2"/></g>
+</svg>
